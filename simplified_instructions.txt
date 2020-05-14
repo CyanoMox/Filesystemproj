@@ -1,0 +1,68 @@
+# Operating System 2019/2020 Projects
+Here are listed all proposed project ideas for this academic year.
+If one would like to do a custom project that she/he designed,
+it must be approved by the prof. and the tutor.
+
+### General projects guidelines:
+In this section you will find generic guidelines for **all projects**.
+
+###### General guidelines:
+- All projects should be hosted on github/gitlab or similars.
+- Each student performs commits using his own account.
+- We want to see the individual commits. Projects with a single commit are considered invalid.
+- The contribution of each member in the group to the development
+  should be crystal clear. Comment your sections in the source with some
+  initials or nickname
+
+  Example:
+  ```cpp
+  //gg: here we clear the list of connections and do some other stuff
+  List_clear(&connections);
+  List_pushBack(&connections, stuff_added);
+  //ia: I am erasing stuff because this and that
+  List_clear(&nodes)
+  ```
+
+5. **Filesystem** ---> `[x1]` `[C98]`
+
+  You should implement a very simple filesystem interface using binary files.
+  A stub of the expected APIs is given and no external library should be used.
+  Allocation should be done using linked list (LLA-FS).
+  Functioning is reported below:
+  - The file system reserves the first part of the file to store:
+    - a linked list of free blocks
+    - linked lists of file blocks
+    - a single global directory
+  - Blocks are of two types
+    - data blocks: contain "random" information (i.e. actual data of a file)
+    - directory blocks: contain a sequence of structs of type `directory_entry`,
+    containing the blocks where the files in that folder start and
+    whether or not those are directory themselves.
+
+  The starting point for this project is the stub reported in the directory
+  [`simple_file_system`](simple_file_system). Note that, you should provide an
+  executable that tests the filesystem (and shows that it's working properly).
+  A sort of naive interactive shell is very appreciated - even if it is not mandatory.
+
+### Final Comments
+Rememeber that **BEFORE** you start working on a project, even if it is one of the proposed one, you must communicate your choice to the prof and the tutor (via email).
+Example:
+
+```
+To: grisetti@diag.uniroma1.it, ialoise@uniroma1.it
+Subject: [SO] Project Assignment
+[...]
+Group composition: Mario Rossi (ID: xxxxxxx), Franco Bianchi (ID: yyyyyyy), ...
+Reference mail of each group component: ....
+Selected project: ...
+Repository link: ...
+```
+
+When you finish the project, you should send an email to both the professor
+**and** the tutor. Note that you should provide also a *very brief* report
+on the project (max 2 pages), reporting
+- what
+- how
+- how to run.
+
+You should include this document in your repository.
