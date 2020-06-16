@@ -5,7 +5,7 @@
 /*these are structures stored on disk*/
 
 // header, occupies the first portion of each block in the disk
-// represents a chained list of blocks
+// represents a chained list of blocks__
 typedef struct {
   int previous_block; // chained list (previous block)
   int next_block;     // chained list (next_block)
@@ -18,7 +18,7 @@ typedef struct {
   int directory_block; // first block of the parent directory
   int block_in_disk;   // repeated position of the block on the disk
   char name[128];
-  int  size_in_bytes;
+  int size_in_bytes;
   int size_in_blocks;
   int is_dir;          // 0 for file, 1 for dir
 } FileControlBlock;
@@ -29,11 +29,12 @@ typedef struct {
 // and can contain some data
 
 /******************* stuff on disk BEGIN *******************/
+//this is the block that contains FCB info (first block of a file)
 typedef struct {
   BlockHeader header;
   FileControlBlock fcb;
   char data[BLOCK_SIZE-sizeof(FileControlBlock) - sizeof(BlockHeader)] ;
-} FirstFileBlock;
+} FirstFileBlock; 
 
 // this is one of the next physical blocks of a file
 typedef struct {
@@ -59,13 +60,12 @@ typedef struct {
 } DirectoryBlock;
 /******************* stuff on disk END *******************/
 
-
-
-
   
 typedef struct {
   DiskDriver* disk;
   // add more fields if needed
+  DirectoryHandle* top_dir;
+  DirectoryHandle* current_directory_block;
 } SimpleFS;
 
 // this is a file handle, used to refer to open files
@@ -89,6 +89,7 @@ typedef struct {
 // initializes a file system on an already made disk
 // returns a handle to the top level directory stored in the first block
 DirectoryHandle* SimpleFS_init(SimpleFS* fs, DiskDriver* disk);
+
 
 // creates the inital structures, the top level directory
 // has name "/" and its control block is in the first position
@@ -144,5 +145,101 @@ int SimpleFS_mkDir(DirectoryHandle* d, char* dirname);
 int SimpleFS_remove(SimpleFS* fs, char* filename);
 
 
-  
+
+/* Function implementation below */
+
+// initializes a file system on an already made disk
+// returns a handle to the top level directory stored in the first block
+DirectoryHandle* SimpleFS_init(SimpleFS* fs, DiskDriver* newdisk){
+	fs -> disk = newdisk;
+	return fs -> top_dir;
+}
+
+// creates the inital structures, the top level directory
+// has name "/" and its control block is in the first position
+// it also clears the bitmap of occupied blocks on the disk
+// the current_directory_block is cached in the SimpleFS struct
+// and set to the top level directory
+void SimpleFS_format(SimpleFS* fs){
+	
+	DirectoryHandle* new_top = (DirectoryHandle*)malloc(sizeof(DirectoryHandle));
+	FirstDirectoryBlock* new_top_block = (FirstDirectoryBlock*)malloc(sizeof(FirstDirectoryBlock));
+	BlockHeader header;
+	FileControlBlock fcb;
+	
+	fcb.directory_block = null; // first block of the parent directory
+	fcb.block_in_disk = 0;   // repeated position of the block on the disk
+	fcb.name = '/';
+	fcb.size_in_bytes = null;
+	float size;
+	if ((int)(fcb.size_in_bytes/BLOCK_SIZE)<(fcb.size_in_bytes/BLOCK_SIZE)) //if division is not integer, round it in excess
+		size=(int)size+1;
+	fcb.size_in_blocks = (int)size;
+	fcb.is_dir = 1;          // 0 for file, 1 for dir
+	
+	header.previous_block = null; // chained list (previous block)
+	header.next_block = null;     // chained list (next_block)
+	header.block_in_file = 0; // position in the file, if 0 we have a file control block
+	
+	new_top_block->header=header;
+	new_top_block->fcb=fcb;
+	new_top_block->num_entries=0;
+	new_top_block->file_blocks=0;
+	
+	new_top->sfs=fs;                   // pointer to memory file system structure
+	new_top->dcb=0;        // pointer to the first block of the directory(read it)
+	new_top->directory=null;  // pointer to the parent directory (null if top level)
+	new_top->current_block=0;      // current block in the directory
+	new_top->pos_in_dir=0;                  // absolute position of the cursor in the directory
+	new_top->pos_in_block=0;
+	
+	fs-> top_dir = new_top;
+	fs-> current_directory_block = top_dir;
+}
+
+// creates an empty file in the directory d
+// returns null on error (file existing, no free blocks)
+// an empty file consists only of a block of type FirstBlock
+FileHandle* SimpleFS_createFile(DirectoryHandle* d, const char* filename){}
+
+// reads in the (preallocated) blocks array, the name of all files in a directory 
+int SimpleFS_readDir(char** names, DirectoryHandle* d){}
+
+
+// opens a file in the  directory d. The file should be exisiting
+FileHandle* SimpleFS_openFile(DirectoryHandle* d, const char* filename){}
+
+
+// closes a file handle (destroyes it)
+int SimpleFS_close(FileHandle* f){}
+
+// writes in the file, at current position for size bytes stored in data
+// overwriting and allocating new space if necessary
+// returns the number of bytes written
+int SimpleFS_write(FileHandle* f, void* data, int size){}
+
+// writes in the file, at current position size bytes stored in data
+// overwriting and allocating new space if necessary
+// returns the number of bytes read
+int SimpleFS_read(FileHandle* f, void* data, int size){}
+
+// returns the number of bytes read (moving the current pointer to pos)
+// returns pos on success
+// -1 on error (file too short)
+int SimpleFS_seek(FileHandle* f, int pos){}
+
+// seeks for a directory in d. If dirname is equal to ".." it goes one level up
+// 0 on success, negative value on error
+// it does side effect on the provided handle
+ int SimpleFS_changeDir(DirectoryHandle* d, char* dirname){}
+
+// creates a new directory in the current one (stored in fs->current_directory_block)
+// 0 on success
+// -1 on error
+int SimpleFS_mkDir(DirectoryHandle* d, char* dirname){}
+
+// removes the file in the current directory
+// returns -1 on failure 0 on success
+// if a directory, it removes recursively all contained files
+int SimpleFS_remove(SimpleFS* fs, char* filename){}
 
