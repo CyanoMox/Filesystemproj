@@ -1,25 +1,40 @@
 #pragma once
 #include <stdint.h>
+
 typedef struct{
-  int num_bits;
-  char* entries;
-}  BitMap;
+	unsigned int num_bitmap_cells; //bitmap len
+	char[num_bitmap_cells] bitmap;
+} BitMap;
 
-typedef struct {
-  int entry_num;
-  char bit_num;
-} BitMapEntryKey;
 
-// converts a block index to an index in the array,
-// and a char that indicates the offset of the bit inside the array
-BitMapEntryKey BitMap_blockToIndex(int num);
-
-// converts a bit to a linear index
-int BitMap_indexToBlock(int entry, uint8_t bit_num);
-
-// returns the index of the first bit having status "status"
+// returns the index of the first cell having status "status"
 // in the bitmap bmap, and starts looking from position start
-int BitMap_get(BitMap* bmap, int start, int status);
+int BitMap_get(char* bitmap, int start, int status);
 
 // sets the bit at index pos in bmap to status
-int BitMap_set(BitMap* bmap, int pos, int status);
+int BitMap_set(char* bitmap, int pos, int status);
+
+
+
+//Functions implementation
+
+int BitMap_get(char* bitmap, int start, int status){
+	int i=start;
+	while (bitmap[i]!=status){ //TODO: fix type casts
+		if(i<num_bitmap_cells)
+			i++;
+		else return -1;
+	}
+	return i;
+}
+
+
+int BitMap_set(char* bitmap, int pos, int status){
+	
+	if(status!=0 || status!=1) return -1;
+	if(pos<num_bitmap_cells){ //checks for assignation
+		bitmap[pos]=status; //TODO: fix type casts
+		return 0;
+	}
+	else return -1;
+}
