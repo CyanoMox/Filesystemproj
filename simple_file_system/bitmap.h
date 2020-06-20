@@ -3,17 +3,17 @@
 
 typedef struct{
 	unsigned int num_bitmap_cells; //bitmap len
-	char[num_bitmap_cells] bitmap;
+	char* bitmap; //len = num_bitmap_cells
 	char* padding; //a series of bytes to adjust bitmap size to a multiple of 4096 (page_size)
 } BitMap;
 
 
 // returns the index of the first cell having status "status"
 // in the bitmap bmap, and starts looking from position start
-int BitMap_get(char* bitmap, int start, int status);
+int BitMap_get(BitMap* bitmap, int start, int status);
 
 // sets the bit at index pos in bmap to status
-int BitMap_set(char* bitmap, int pos, int status);
+int BitMap_set(BitMap* bitmap, int pos, int status);
 
 
 
@@ -22,7 +22,7 @@ int BitMap_set(char* bitmap, int pos, int status);
 int BitMap_get(BitMap* bitmap, int start, int status){
 	int i = start;
 	while ((int)bitmap->bitmap[i] != status){
-		if(i<num_bitmap_cells)
+		if(i<bitmap->num_bitmap_cells)
 			i++;
 		else return -1;
 	}
@@ -33,7 +33,7 @@ int BitMap_get(BitMap* bitmap, int start, int status){
 int BitMap_set(BitMap* bitmap, int pos, int status){
 	
 	if(status!=0 || status!=1) return -1;
-	if(pos<num_bitmap_cells){ 
+	if(pos<bitmap->num_bitmap_cells){ 
 		bitmap->bitmap[pos] = status; 
 		return 0;
 	}
