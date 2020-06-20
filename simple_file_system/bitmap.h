@@ -4,6 +4,7 @@
 typedef struct{
 	unsigned int num_bitmap_cells; //bitmap len
 	char[num_bitmap_cells] bitmap;
+	char* padding; //a series of bytes to adjust bitmap size to a multiple of 4096 (page_size)
 } BitMap;
 
 
@@ -18,9 +19,9 @@ int BitMap_set(char* bitmap, int pos, int status);
 
 //Functions implementation
 
-int BitMap_get(char* bitmap, int start, int status){
-	int i=start;
-	while (bitmap[i]!=status){ //TODO: fix type casts
+int BitMap_get(BitMap* bitmap, int start, int status){
+	int i = start;
+	while ((int)bitmap->bitmap[i] != status){
 		if(i<num_bitmap_cells)
 			i++;
 		else return -1;
@@ -29,11 +30,11 @@ int BitMap_get(char* bitmap, int start, int status){
 }
 
 
-int BitMap_set(char* bitmap, int pos, int status){
+int BitMap_set(BitMap* bitmap, int pos, int status){
 	
 	if(status!=0 || status!=1) return -1;
-	if(pos<num_bitmap_cells){ //checks for assignation
-		bitmap[pos]=status; //TODO: fix type casts
+	if(pos<num_bitmap_cells){ 
+		bitmap->bitmap[pos] = status; 
 		return 0;
 	}
 	else return -1;
