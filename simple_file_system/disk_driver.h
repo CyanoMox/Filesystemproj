@@ -173,7 +173,8 @@ int DiskDriver_init(DiskDriver* disk, const char* filename, int num_blocks){
 int DiskDriver_readBlock(DiskDriver* disk, void* dest, int block_num){
 	
 	if(block_num<0 || block_num > disk->disk_map->num_bitmap_cells-1) return -2; //Invalid block num
-	char* cursor = &disk->disk_map->bitmap;
+	char* cursor = (char*)&disk->disk_map;
+	cursor += sizeof(disk->disk_map->num_bitmap_cells);
 	if((int)cursor[block_num]!=0&&(int)cursor[block_num]!=1){ //Something went wrong
 		printf("The bitmap is damaged!\n");
 		exit(-1);
@@ -191,13 +192,20 @@ int DiskDriver_readBlock(DiskDriver* disk, void* dest, int block_num){
 int DiskDriver_writeBlock(DiskDriver* disk, void* src, int block_num){
 	
 	if(block_num<0 || block_num>disk->disk_map->num_bitmap_cells-1) return -1; //Invalid block num
-	char* cursor = &disk->disk_map->bitmap;
-	if(cursor[block_num]==0) disk->free_blocks -= 1;
+	char* cursor = (char*)&disk->disk_map;
+	cursor += sizeof(disk->disk_map->num_bitmap_cells);
 	
+	if(cursor[block_num]==0) {
+		disk->free_blocks -= 1;
+		cursor[block_num] = 1; //TODO: check this for seg fault
+	}
+	
+	/*
 	if(BitMap_set(disk->disk_map, block_num, 1) != 0){ //Setting bitmap entry to 1
 			printf("Error setting the bitmap!\n");
 			exit(-1);
 	}
+	*/
 	
 	//Copying full block in dest memory
 	memcpy((void*)DiskDriver_getBlock(disk, block_num), src, BLOCK_SIZE);
@@ -209,13 +217,21 @@ int DiskDriver_writeBlock(DiskDriver* disk, void* src, int block_num){
 int DiskDriver_freeBlock(DiskDriver* disk, int block_num){
 	
 	if(block_num<0 || block_num>disk->disk_map->num_bitmap_cells-1) return -1; //Invalid block num
-	char* cursor = &disk->disk_map->bitmap;
-	if(cursor[block_num]==1) disk->free_blocks += 1;
+	char* cursor = (char*)&disk->disk_map;
+	cursor += sizeof(disk->disk_map->num_bitmap_cells);
 	
+	if(cursor[block_num]==1) {
+		disk->free_blocks += 1;
+		cursor[block_num] = 0;  //TODO: check this for Seg fault
+	}
+	
+	/*
 	if(BitMap_set(disk->disk_map, block_num, 0) != 0){ //Setting bitmap entry to 0
 			printf("Error setting the bitmap!/n");
 			exit(-1);
-	}
+	}*/
+	
+	
 	
 	return 0;
 }
@@ -281,7 +297,8 @@ int DiskDriver_resume(DiskDriver* disk){
 	
 	int i;
 	disk->free_blocks = 0; 
-	char* cursor = &disk->disk_map->bitmap;
+	char* cursor = (char*)&disk->disk_map;
+	cursor += sizeof(disk->disk_map->num_bitmap_cells);
 	for (i=0; i<num_blocks; i++){
 		if (cursor[i]==0) disk->free_blocks += 1;
 	}

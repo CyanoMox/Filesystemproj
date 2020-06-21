@@ -10,9 +10,18 @@ void printDiskStatus(DiskDriver* disk);
 
 int main (){
 	DiskDriver disk;
-	int res = DiskDriver_init(&disk, "test_fs", 8188);
-	if (res==-1) printf("AHIME'! \n");
+	int res = DiskDriver_init(&disk, "test_fs", 3);
+	if (res==-1) {
+		printf("AHIME'! \n");
+		return -1;
+	}
 	else printDiskStatus(&disk);
+	
+	//Now test getBlock, writeBlock and readBlock
+	char* src = malloc(sizeof(char)*BLOCK_SIZE);
+	int i;
+	for(i=0;i<BLOCK_SIZE;i++) src[i] = 0xA1;
+	DiskDriver_writeBlock(&disk, src, 0);
 	
 	return 0;
 }
