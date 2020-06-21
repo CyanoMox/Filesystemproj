@@ -1,3 +1,8 @@
+
+
+/*** THIS FILE WAS DEPRECATED AND ITS FEATURES ARE INTEGRATED INTO disk_driver.h***/
+
+
 #pragma once
 #include <stdint.h>
 #include <stdio.h>
