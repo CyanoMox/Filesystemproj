@@ -1,5 +1,4 @@
 #pragma once
-//#include "bitmap.h"
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -55,9 +54,6 @@ int DiskDriver_freeBlock(DiskDriver* disk, int block_num);
 // returns the first free block in the disk from position (checking the bitmap)
 int DiskDriver_getFreeBlock(DiskDriver* disk, int start);
 
-// writes the data (flushing the mmap)
-int DiskDriver_flush(DiskDriver* disk);
-
 
 
 /**Auxiliary funcions!**/
@@ -91,11 +87,11 @@ int DiskDriver_init(DiskDriver* disk, const char* filename, int num_blocks){
 		
 	/**The code block I commented below did exactly the opposite of what is asked for:
 	 * instead of taking a file and truncating it of the right dimension, according to
-	 * num_blocks, it took a file of a GIVEN dimension and subdivided it with the max
+	 * num_blocks, it took a file of a GIVEN dimension and subdivided it in the max
 	 * number of blocks it could contain.
 	 * The bitmap was stored in eventual spare space in this subdivision.
 	 * If that spare space wasn't large enough, it reduced the number of fs blocks by 1 
-	 * an retried until the spare space was enough to fit the whole bitmap. (untested, but cool!)
+	 * an retried until the spare space was enough to fit the whole bitmap. (untested, but cool idea!)
 	 * **/	
 	/*
 	if(res!=-1){
@@ -181,9 +177,9 @@ int DiskDriver_readBlock(DiskDriver* disk, void* dest, int block_num){
 	}
 	
 	if((int)cursor[block_num]==0) return -1; //Empty block
-	
+
 	if((int)cursor[block_num]==1)  //Copying full block in dest memory
-		memcpy(dest, (void*)DiskDriver_getBlock(disk, block_num), BLOCK_SIZE);
+		memcpy(dest, DiskDriver_getBlock(disk, block_num), BLOCK_SIZE);
 	return 0;
 	
 }
@@ -204,6 +200,7 @@ int DiskDriver_writeBlock(DiskDriver* disk, void* src, int block_num){
 	char* res = DiskDriver_getBlock(disk, block_num);
 	if(res!=NULL) memcpy(res, src, BLOCK_SIZE); 
 	else {
+
 		return -1;
 	}
 	
@@ -219,7 +216,7 @@ int DiskDriver_freeBlock(DiskDriver* disk, int block_num){
 	
 	if(cursor[block_num]==1) {
 		disk->free_blocks += 1;
-		cursor[block_num] = 0;  //TODO: check this for Seg fault
+		cursor[block_num] = 0; 
 	}
 		
 	return 0;
@@ -229,26 +226,31 @@ int DiskDriver_freeBlock(DiskDriver* disk, int block_num){
 int DiskDriver_getFreeBlock(DiskDriver* disk, int start){
 	
 	if(start<0 || start>disk->num_entries-1) return -1; //Invalid start block
+	char* cursor = disk->disk_map;
+	cursor += sizeof(disk->num_entries);
 	
-	//int res = BitMap_get(disk->disk_map, start, 0); 
-	int res = -1; //TODO: REMOVE THIS! IT'S A DUMMY!
-	if(res == -1) return -1; //No free blocks available (I know it's redundant, but it's logical)
-	else return res;
-}
-
-//Deprecated.
-int DiskDriver_flush(DiskDriver* disk){
-	//disk->disk_map[0] = disk->bmp; //This writes my bitmap down to the disk.
-	//Blocks are directly written onto the disk on modification in this implementation (copy on write)
+	int i = start;
+	while(i<disk->num_entries){
+		if(cursor[i]==0) return i;
+		i++;
+	}
+	
+	return -1;
 }
 
 
 void DiskDriver_close(DiskDriver* disk){
 	
-	//DiskDriver_flush(disk); //Updating bitmap
+	//Updating bitmap
+	munmap(disk->block_map, sizeof(char)*8); //Unmapping blocks, assuming 8 blocks for portion
 	
-	munmap(disk->block_map, sizeof(*disk->block_map)); //Unmapping blocks
-	munmap(disk->disk_map, sizeof(*disk->disk_map)); //Unmapping disk
+	int bitmap_size = sizeof(int) + disk->num_entries*sizeof(char);
+	int padding_size; 
+	if(bitmap_size%PAGE_SIZE!=0) padding_size = PAGE_SIZE-(bitmap_size%PAGE_SIZE); //Solves a bug that allocates a unuseful extra page if previous page was exactly full
+	else padding_size = bitmap_size%PAGE_SIZE;
+	bitmap_size += padding_size; 
+	
+	munmap(disk->disk_map, bitmap_size); //Unmapping disk
 	close(disk->fd);  //Closing disk file
 	exit(0); //Bye!
 	
@@ -258,11 +260,14 @@ void DiskDriver_close(DiskDriver* disk){
 int DiskDriver_resume(DiskDriver* disk){
 	
 	int num_blocks;
-	if (read(disk->fd, &num_blocks, sizeof(int))==-1){
-		printf("Error retrieving bitmap lenght/n");
-		return -1;
-	}
 	
+	//Retrieving bitmap lenght!
+	int* temp = (int*)mmap(NULL, sizeof(int), PROT_READ|PROT_WRITE, MAP_SHARED, disk->fd, 0);
+	num_blocks = *temp; 
+	munmap(temp, sizeof(int));
+	
+	disk->num_entries = num_blocks;
+		
 	int bitmap_size = sizeof(int) + num_blocks*sizeof(char);
 	int padding_size; 
 	if(bitmap_size%PAGE_SIZE!=0) padding_size = PAGE_SIZE-(bitmap_size%PAGE_SIZE); //Solves a bug that allocates a unuseful extra page if previous page was exactly full
@@ -284,9 +289,10 @@ int DiskDriver_resume(DiskDriver* disk){
 
 	disk->first_block_offset = bitmap_size;
 	
+	//Calculating free space
 	int i;
 	disk->free_blocks = 0; 
-	char* cursor = (char*)&disk->disk_map;
+	char* cursor = disk->disk_map;
 	cursor += sizeof(disk->num_entries);
 	for (i=0; i<num_blocks; i++){
 		if (cursor[i]==0) disk->free_blocks += 1;
@@ -316,7 +322,7 @@ char* DiskDriver_getBlock(DiskDriver* disk, int block_index){
 	
 	disk->block_map = (char*)mmap(NULL, BLOCK_SIZE*PAGE_SIZE , PROT_READ|PROT_WRITE, MAP_SHARED, disk->fd, disk->first_block_offset+offset);
 	disk->first_mapped_block = (block_index/mapped_blocks)*mapped_blocks; //It works because the fraction takes only integer part.
-	printf("offset = %d\n", offset);
-	printf("first_mapped_block = %d\n", disk->first_mapped_block);
+	//printf("offset = %d\n", offset);
+	//printf("first_mapped_block = %d\n", disk->first_mapped_block);
 	return DiskDriver_getBlock(disk, block_index);
 }
