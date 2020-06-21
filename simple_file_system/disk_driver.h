@@ -15,7 +15,7 @@
 #define PAGE_SIZE 4096
 
 typedef struct {
-  BitMap* disk_map; // mmapped bitmap
+  BitMap* disk_map; // (mmapped) bitmap
   
   
   char* block_map; // mmapped block page (1 page = 4096 byte = 8 blocks).
@@ -75,7 +75,7 @@ char* DiskDriver_getBlock(DiskDriver* disk, int block_index);
 /** Implementation of the functions **/
 int DiskDriver_init(DiskDriver* disk, const char* filename, int num_blocks){
 	
-	int res = open(filename, O_CREAT | O_EXCL | O_RDWR);
+	int res = open(filename, O_CREAT | O_EXCL | O_RDWR, 0777);
 	if (res == -1){
 		res = open(filename, O_RDWR);
 		if(res == -1){
@@ -117,37 +117,54 @@ int DiskDriver_init(DiskDriver* disk, const char* filename, int num_blocks){
 		}
 	}
 	*/
-	
-	int i;
-	BitMap disk_bitmap;
-	disk_bitmap.num_bitmap_cells = num_blocks;
-	
-	for(i=0;i<num_blocks;i++)
-		disk_bitmap.bitmap[i] = 0;
-	int bitmap_size = sizeof(int) + num_blocks*sizeof(char);
-	
-	for(i=0;i<(bitmap_size%PAGE_SIZE);i++) //I'm adjusting bitmap size due to mmap limitations
-		disk_bitmap.padding[i] = 0xFF;
 		
-	bitmap_size = sizeof(disk_bitmap);
+	int bitmap_size = sizeof(int) + num_blocks*sizeof(char);
+	int padding_size; 
+	if(bitmap_size%PAGE_SIZE!=0) padding_size = PAGE_SIZE-(bitmap_size%PAGE_SIZE); //Solves a bug that allocates a unuseful extra page if previous page was exactly full
+	else padding_size = bitmap_size%PAGE_SIZE;
+	
+	char* bitmap_padding = (char*)malloc(sizeof(char)*padding_size); 
+	printf("Number of blocks = %d\nBitmap size = %d\nPadding bytes = %d\n",num_blocks,bitmap_size,padding_size);
+
+	bitmap_size += padding_size; 
+	printf("Final Bitmap size = %d\n", bitmap_size);
 	int disk_size = bitmap_size + num_blocks*BLOCK_SIZE;
+	printf("Final Disk size = %d\n", disk_size);
 	
 	//Mapping my disk in process memory
 	if(ftruncate(res, disk_size) == -1){  
 			printf("Error truncating file /n");
 			exit(-1);
 	}
+	
 	BitMap* disk_map = (BitMap*)mmap(NULL, bitmap_size, PROT_READ|PROT_WRITE, MAP_SHARED, res, 0); //mmapping bitmap area on fd
+	disk->disk_map = disk_map;
 	
 	//Writing down bitmap to mmapped area
-	memcpy(disk_map, &disk_bitmap, bitmap_size);	
+	disk->disk_map->num_bitmap_cells = num_blocks; //Writing down first integer
 	
+	int* temp = &(disk->disk_map->num_bitmap_cells);
+	char* src = (char*)temp + sizeof(int);
+	int i, j;
+	char zero, one;
+	zero = 0x00;	
+	one = 0xFF;
+	
+	for(i=0;i<num_blocks;i++){	//Writing down bitmap itself
+	 memcpy(src+i, &zero, sizeof(char));  
+	}
+	
+	for(j=0;j<padding_size;j++){		
+	 memcpy(src+i+j, &one, sizeof(char)); //Writing down padding
+	}
+	
+	printf("DBG\n");
 	//Compiling struct
 	disk->disk_map = disk_map;
 	disk->block_map = NULL; //This will be mapped upon use
 	disk->fd = res;
 	disk->free_blocks = num_blocks;
-	disk->first_block_offset = bitmap_size + 1;
+	disk->first_block_offset = bitmap_size;
 
 	return 0;
 }
@@ -156,15 +173,15 @@ int DiskDriver_init(DiskDriver* disk, const char* filename, int num_blocks){
 int DiskDriver_readBlock(DiskDriver* disk, void* dest, int block_num){
 	
 	if(block_num<0 || block_num > disk->disk_map->num_bitmap_cells-1) return -2; //Invalid block num
-	
-	if((int)disk->disk_map->bitmap[block_num]!=0&&(int)disk->disk_map->bitmap[block_num]!=1){ //Something went wrong
+	char* cursor = &disk->disk_map->bitmap;
+	if((int)cursor[block_num]!=0&&(int)cursor[block_num]!=1){ //Something went wrong
 		printf("The bitmap is damaged!\n");
 		exit(-1);
 	}
 	
-	if((int)disk->disk_map->bitmap[block_num]==0) return -1; //Empty block
+	if((int)cursor[block_num]==0) return -1; //Empty block
 	
-	if((int)disk->disk_map->bitmap[block_num]==1)  //Copying full block in dest memory
+	if((int)cursor[block_num]==1)  //Copying full block in dest memory
 		memcpy(dest, (void*)DiskDriver_getBlock(disk, block_num), BLOCK_SIZE);
 	return 0;
 	
@@ -174,8 +191,8 @@ int DiskDriver_readBlock(DiskDriver* disk, void* dest, int block_num){
 int DiskDriver_writeBlock(DiskDriver* disk, void* src, int block_num){
 	
 	if(block_num<0 || block_num>disk->disk_map->num_bitmap_cells-1) return -1; //Invalid block num
-
-	if(disk->disk_map->bitmap[block_num]==0) disk->free_blocks -= 1;
+	char* cursor = &disk->disk_map->bitmap;
+	if(cursor[block_num]==0) disk->free_blocks -= 1;
 	
 	if(BitMap_set(disk->disk_map, block_num, 1) != 0){ //Setting bitmap entry to 1
 			printf("Error setting the bitmap!\n");
@@ -192,8 +209,8 @@ int DiskDriver_writeBlock(DiskDriver* disk, void* src, int block_num){
 int DiskDriver_freeBlock(DiskDriver* disk, int block_num){
 	
 	if(block_num<0 || block_num>disk->disk_map->num_bitmap_cells-1) return -1; //Invalid block num
-	
-	if(disk->disk_map->bitmap[block_num]==1) disk->free_blocks += 1;
+	char* cursor = &disk->disk_map->bitmap;
+	if(cursor[block_num]==1) disk->free_blocks += 1;
 	
 	if(BitMap_set(disk->disk_map, block_num, 0) != 0){ //Setting bitmap entry to 0
 			printf("Error setting the bitmap!/n");
@@ -262,10 +279,14 @@ int DiskDriver_resume(DiskDriver* disk){
 	
 	int i;
 	disk->free_blocks = 0; 
+	char* cursor = &disk->disk_map->bitmap;
 	for (i=0; i<num_blocks; i++){
-		if (disk->disk_map->bitmap[i]==0) disk->free_blocks += 1;
+		if (cursor[i]==0) disk->free_blocks += 1;
 	}
+	
+	printf("Resumed!\n");
 	return 0;
+	
 }
 
 

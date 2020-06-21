@@ -9,7 +9,7 @@
 
 int main (){
 	DiskDriver disk;
-	int res = DiskDriver_init(&disk, "/home/test_fs", 100);
+	int res = DiskDriver_init(&disk, "test_fs", 4092);
 	if (res==-1) printf("OCCAZZO! \n");
 	return 0;
 }

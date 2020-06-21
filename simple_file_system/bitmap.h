@@ -3,8 +3,8 @@
 
 typedef struct{
 	unsigned int num_bitmap_cells; //bitmap len
-	char* bitmap; //len = num_bitmap_cells
-	char* padding; //a series of bytes to adjust bitmap size to a multiple of 4096 (page_size)
+	char bitmap; //this is a CURSOR. Has to be read as "&" len = num_bitmap_cells
+	//char padding; //a series of bytes to adjust bitmap size to a multiple of 4096 (page_size)
 } BitMap;
 
 
@@ -21,7 +21,8 @@ int BitMap_set(BitMap* bitmap, int pos, int status);
 
 int BitMap_get(BitMap* bitmap, int start, int status){
 	int i = start;
-	while ((int)bitmap->bitmap[i] != status){
+	char* cursor = &bitmap->bitmap;
+	while ((int)cursor[i] != status){
 		if(i<bitmap->num_bitmap_cells)
 			i++;
 		else return -1;
@@ -31,10 +32,10 @@ int BitMap_get(BitMap* bitmap, int start, int status){
 
 
 int BitMap_set(BitMap* bitmap, int pos, int status){
-	
+	char* cursor = &bitmap->bitmap;
 	if(status!=0 || status!=1) return -1;
 	if(pos<bitmap->num_bitmap_cells){ 
-		bitmap->bitmap[pos] = status; 
+		cursor[pos] = status; 
 		return 0;
 	}
 	else return -1;
