@@ -1,5 +1,5 @@
 #pragma once
-#include "bitmap.h"
+//#include "bitmap.h"
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -15,8 +15,8 @@
 #define PAGE_SIZE 4096
 
 typedef struct {
-  BitMap* disk_map; // (mmapped) bitmap
-  
+  char* disk_map; // (mmapped) bitmap
+  int num_entries; // number of blocks mapped (= bitmap lenght without padding and int)
   
   char* block_map; // mmapped block page (1 page = 4096 byte = 8 blocks).
   unsigned int first_mapped_block; //index of the first block on the block_map.
@@ -137,25 +137,25 @@ int DiskDriver_init(DiskDriver* disk, const char* filename, int num_blocks){
 			exit(-1);
 	}
 	
-	BitMap* disk_map = (BitMap*)mmap(NULL, bitmap_size, PROT_READ|PROT_WRITE, MAP_SHARED, res, 0); //mmapping bitmap area on fd
+	char* disk_map = (char*)mmap(NULL, bitmap_size, PROT_READ|PROT_WRITE, MAP_SHARED, res, 0); //mmapping bitmap area on fd
 	disk->disk_map = disk_map;
+	disk->num_entries = num_blocks;
 	
 	//Writing down bitmap to mmapped area
-	disk->disk_map->num_bitmap_cells = num_blocks; //Writing down first integer
+	memcpy(disk_map, &num_blocks, sizeof(int)); //Writing down first integer
 	
-	int* temp = &(disk->disk_map->num_bitmap_cells);
-	char* src = (char*)temp + sizeof(int);
+	char* dest = disk_map + sizeof(int);
 	int i, j;
 	char zero, one;
 	zero = 0x00;	
 	one = 0xFF;
 	
 	for(i=0;i<num_blocks;i++){	//Writing down bitmap itself
-	 memcpy(src+i, &zero, sizeof(char));  
+	 memcpy(dest+i, &zero, sizeof(char));  
 	}
 	
 	for(j=0;j<padding_size;j++){		
-	 memcpy(src+i+j, &one, sizeof(char)); //Writing down padding
+	 memcpy(dest+i+j, &one, sizeof(char)); //Writing down padding
 	}
 	
 	//Compiling struct
@@ -172,9 +172,9 @@ int DiskDriver_init(DiskDriver* disk, const char* filename, int num_blocks){
 
 int DiskDriver_readBlock(DiskDriver* disk, void* dest, int block_num){
 	
-	if(block_num<0 || block_num > disk->disk_map->num_bitmap_cells-1) return -2; //Invalid block num
-	char* cursor = (char*)&disk->disk_map;
-	cursor += sizeof(disk->disk_map->num_bitmap_cells);
+	if(block_num<0 || block_num > disk->num_entries -1) return -2; //Invalid block num
+	char* cursor = disk->disk_map;
+	cursor += sizeof(disk->num_entries);
 	if((int)cursor[block_num]!=0&&(int)cursor[block_num]!=1){ //Something went wrong
 		printf("The bitmap is damaged!\n");
 		exit(-1);
@@ -191,24 +191,21 @@ int DiskDriver_readBlock(DiskDriver* disk, void* dest, int block_num){
 
 int DiskDriver_writeBlock(DiskDriver* disk, void* src, int block_num){
 	
-	if(block_num<0 || block_num>disk->disk_map->num_bitmap_cells-1) return -1; //Invalid block num
-	char* cursor = (char*)&disk->disk_map;
-	cursor += sizeof(disk->disk_map->num_bitmap_cells);
+	if(block_num<0 || block_num>disk->num_entries -1) return -1; //Invalid block num
+	char* cursor = disk->disk_map;
+	cursor += sizeof(disk->num_entries);
 	
 	if(cursor[block_num]==0) {
 		disk->free_blocks -= 1;
-		cursor[block_num] = 1; //TODO: check this for seg fault
+		cursor[block_num] = 1;  //Updating Bitmap
 	}
-	
-	/*
-	if(BitMap_set(disk->disk_map, block_num, 1) != 0){ //Setting bitmap entry to 1
-			printf("Error setting the bitmap!\n");
-			exit(-1);
-	}
-	*/
 	
 	//Copying full block in dest memory
-	memcpy((void*)DiskDriver_getBlock(disk, block_num), src, BLOCK_SIZE);
+	char* res = DiskDriver_getBlock(disk, block_num);
+	if(res!=NULL) memcpy(res, src, BLOCK_SIZE); 
+	else {
+		return -1;
+	}
 	
 	return 0;
 }
@@ -216,33 +213,25 @@ int DiskDriver_writeBlock(DiskDriver* disk, void* src, int block_num){
 
 int DiskDriver_freeBlock(DiskDriver* disk, int block_num){
 	
-	if(block_num<0 || block_num>disk->disk_map->num_bitmap_cells-1) return -1; //Invalid block num
-	char* cursor = (char*)&disk->disk_map;
-	cursor += sizeof(disk->disk_map->num_bitmap_cells);
+	if(block_num<0 || block_num>disk->num_entries-1) return -1; //Invalid block num
+	char* cursor = disk->disk_map;
+	cursor += sizeof(disk->num_entries);
 	
 	if(cursor[block_num]==1) {
 		disk->free_blocks += 1;
 		cursor[block_num] = 0;  //TODO: check this for Seg fault
 	}
-	
-	/*
-	if(BitMap_set(disk->disk_map, block_num, 0) != 0){ //Setting bitmap entry to 0
-			printf("Error setting the bitmap!/n");
-			exit(-1);
-	}*/
-	
-	
-	
+		
 	return 0;
 }
 
 
 int DiskDriver_getFreeBlock(DiskDriver* disk, int start){
 	
-	if(start<0 || start>disk->disk_map->num_bitmap_cells-1) return -1; //Invalid start block
+	if(start<0 || start>disk->num_entries-1) return -1; //Invalid start block
 	
-	int res = BitMap_get(disk->disk_map, start, 0); 
-	
+	//int res = BitMap_get(disk->disk_map, start, 0); 
+	int res = -1; //TODO: REMOVE THIS! IT'S A DUMMY!
 	if(res == -1) return -1; //No free blocks available (I know it's redundant, but it's logical)
 	else return res;
 }
@@ -287,7 +276,7 @@ int DiskDriver_resume(DiskDriver* disk){
 			exit(-1);
 	}
 	
-	BitMap* disk_map = (BitMap*)mmap(NULL, bitmap_size, PROT_READ|PROT_WRITE, MAP_SHARED, disk->fd, 0); //mmapping bitmap area on fd
+	char* disk_map = (char*)mmap(NULL, bitmap_size, PROT_READ|PROT_WRITE, MAP_SHARED, disk->fd, 0); //mmapping bitmap area on fd
 	disk->disk_map = disk_map;
 	
 	disk->block_map = (char*)NULL;
@@ -298,7 +287,7 @@ int DiskDriver_resume(DiskDriver* disk){
 	int i;
 	disk->free_blocks = 0; 
 	char* cursor = (char*)&disk->disk_map;
-	cursor += sizeof(disk->disk_map->num_bitmap_cells);
+	cursor += sizeof(disk->num_entries);
 	for (i=0; i<num_blocks; i++){
 		if (cursor[i]==0) disk->free_blocks += 1;
 	}
@@ -311,7 +300,7 @@ int DiskDriver_resume(DiskDriver* disk){
 
 char* DiskDriver_getBlock(DiskDriver* disk, int block_index){
 	
-	if(block_index<0 || block_index > disk->disk_map->num_bitmap_cells-1) return (char*)NULL; //Security check
+	if(block_index<0 || block_index > disk->num_entries-1) return (char*)NULL; //Security check
 	
 	int mapped_blocks = PAGE_SIZE/BLOCK_SIZE; //This has likely to be == 8
 	int offset;
@@ -325,8 +314,9 @@ char* DiskDriver_getBlock(DiskDriver* disk, int block_index){
 	
 	offset = (block_index/mapped_blocks)*PAGE_SIZE; //it represents the portion of blocks that has to be mmapped to get the block "block_index"
 	
-	disk->disk_map = (BitMap*)mmap(NULL, BLOCK_SIZE*PAGE_SIZE , PROT_READ|PROT_WRITE, MAP_SHARED, disk->fd, offset);
+	disk->block_map = (char*)mmap(NULL, BLOCK_SIZE*PAGE_SIZE , PROT_READ|PROT_WRITE, MAP_SHARED, disk->fd, disk->first_block_offset+offset);
 	disk->first_mapped_block = (block_index/mapped_blocks)*mapped_blocks; //It works because the fraction takes only integer part.
-	
+	printf("offset = %d\n", offset);
+	printf("first_mapped_block = %d\n", disk->first_mapped_block);
 	return DiskDriver_getBlock(disk, block_index);
 }
