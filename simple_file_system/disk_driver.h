@@ -68,6 +68,7 @@ char* DiskDriver_getBlock(DiskDriver* disk, int block_index);
 
 
 
+
 /** Implementation of the functions **/
 int DiskDriver_init(DiskDriver* disk, const char* filename, int num_blocks){
 	
@@ -78,11 +79,7 @@ int DiskDriver_init(DiskDriver* disk, const char* filename, int num_blocks){
 				printf("Error opening file! \n");
 				return -1;
 		}
-		else {
-			disk->fd = res;
-			DiskDriver_resume(disk); //In this case, a working disk was already created
-			return 0; //Don't initialize a good disk!
-		}
+		
 	}
 		
 	/**The code block I commented below did exactly the opposite of what is asked for:
@@ -257,9 +254,10 @@ void DiskDriver_close(DiskDriver* disk){
 }
 
 
-int DiskDriver_resume(DiskDriver* disk){
+int DiskDriver_resume(DiskDriver* disk, int fd){
 	
 	int num_blocks;
+	disk->fd = fd;
 	
 	//Retrieving bitmap lenght!
 	int* temp = (int*)mmap(NULL, sizeof(int), PROT_READ|PROT_WRITE, MAP_SHARED, disk->fd, 0);
@@ -326,3 +324,4 @@ char* DiskDriver_getBlock(DiskDriver* disk, int block_index){
 	//printf("first_mapped_block = %d\n", disk->first_mapped_block);
 	return DiskDriver_getBlock(disk, block_index);
 }
+
