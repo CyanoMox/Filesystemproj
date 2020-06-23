@@ -93,7 +93,7 @@ typedef struct {
   unsigned int fcb;              // index of the first block of the file(read it)
   unsigned int parent_dir;  	 // index of the directory where the file is stored
   unsigned int current_block;    // number of current block in the file
-  unsigned int pos_in_file;                // position of the cursor
+  unsigned int pos_in_file;       // position of the cursor in the block
 } FileHandle;
 
 typedef struct {
@@ -303,6 +303,13 @@ int SimpleFS_createFile(DirectoryHandle* d, const char* filename, FileHandle* de
 		printf("Error writing down block");
 	}
 	
+	//Creating FileHandle
+	dest_handle->sfs = d->sfs;
+	dest_handle->fcb = ffb.fcb.block_in_disk;
+	dest_handle->parent_dir = ffb.fcb.directory_block;
+	dest_handle->current_block = 0;
+	dest_handle->pos_in_file = 0;
+	
 	return 0;
 }
 
@@ -392,4 +399,65 @@ int SimpleFS_readDir(char** names, DirectoryHandle* d){
 		}
 	}
 	while(remaining_files!=0)
+}
+
+
+// opens a file in the  directory d. The file should be exisiting
+int SimpleFS_openFile(DirectoryHandle* d, const char* filename, FileHandle* dest_handle){
+	
+	FirstDirectoryBlock pwd_dcb;
+	
+	int res = DiskDriver_readBlock(d->sfs->disk, &pwd_dcb, d->dcb);
+	if(res!=0) {
+		printf("Error reading first dir block\n");
+		return -1;
+	}
+	char names[pwd_dcb.num_entries][128]; //Allocating name matrix
+	//we have num_entries sub-vectors by 128 bytes
+	if(SimpleFS_readDir(names, d)==-1) return -1;
+	
+	
+	//now retrieving FirstFileBlock index
+	int array_num; //This value will record the position in the array of the filename itself. From that, it's easy to retrieve the fileindex
+	for(i=0;i<pwd_dcb.num_entries;i++){
+		if(strcmp(names[i],filename, 128*sizeof(char))==0){
+			array_num = i;
+			//if filename is in the first block
+			if (array_num<F_DIR_BLOCK_OFFSET){
+					dest_handle->sfs = d->sfs;
+					dest_handle->fcb = pwd_dcb.file_blocks[i];
+					dest_handle->parent_dir = pwd_dcb.dcb;
+					dest_handle->current_block = 0;
+					dest_handle->pos_in_file = 0;
+					
+					return 0;
+			}
+			//else
+			array_num -= F_DIR_BLOCK_OFFSET; //excluding first dir block
+			array_num = array_num/DIR_BLOCK_OFFSET; //this is the remainder block in the LL that contains the file
+			int offset = array_num % DIR_BLOCK_OFFSET; //this is the offset to obtain the file in that block
+			
+			//putting in RAM that reminder block
+			DirectoryBlock pwd_rem;
+			//passing explicitly from FirstDirectoryBlock to DirectoryBlock
+			if(DiskDriver_readBlock(pwd_dcb.sfs->disk, &pwd_rem, pwd_dcb.header.next_block)!=0)
+				return -1;
+			//getting right DirBlock trough iterations
+			for(i=0;i<array_num;i++){
+				if(DiskDriver_readBlock(pwd_rem.sfs->disk, &pwd_rem, pwd_rem.header.next_block)!=0)
+				return -1;
+			}
+			//now returning handle
+			dest_handle->sfs = d->sfs;
+			dest_handle->fcb = pwd_rem.file_blocks[offset];
+			dest_handle->parent_dir = d->dcb;
+			dest_handle->current_block = 0;
+			dest_handle->pos_in_file = 0;
+			
+			return 0;
+		}
+	}
+	//if no filename match
+	printf("File not found\n");
+	return -1;
 }
