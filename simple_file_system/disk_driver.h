@@ -21,8 +21,8 @@ typedef struct {
   unsigned int first_mapped_block; //index of the first block on the block_map.
   
   int fd; // for us
-  int free_blocks;     // free blocks
-  int first_block_offset; // offset for reading first block
+  unsigned int free_blocks;     // free blocks
+  unsigned int first_block_offset; // offset for reading first block
 } DiskDriver;
 
 /**
@@ -36,23 +36,23 @@ typedef struct {
 // if the file was new
 // compiles a disk header, and fills in the bitmap of appropriate size
 // with all 0 (to denote the free space);
-int DiskDriver_init(DiskDriver* disk, const char* filename, int num_blocks);
+int DiskDriver_init(DiskDriver* disk, const char* filename, unsigned int num_blocks);
 
 // reads the block in position block_num
 // returns -1 if the block is free according to the bitmap
 // 0 otherwise
-int DiskDriver_readBlock(DiskDriver* disk, void* dest, int block_num);
+int DiskDriver_readBlock(DiskDriver* disk, void* dest, unsigned int block_num);
 
 // writes a block in position block_num, and alters the bitmap accordingly
 // returns -1 if operation not possible
-int DiskDriver_writeBlock(DiskDriver* disk, void* src, int block_num);
+int DiskDriver_writeBlock(DiskDriver* disk, void* src, unsigned int block_num);
 
 // frees a block in position block_num, and alters the bitmap accordingly
 // returns -1 if operation not possible
-int DiskDriver_freeBlock(DiskDriver* disk, int block_num);
+int DiskDriver_freeBlock(DiskDriver* disk, unsigned int block_num);
 
 // returns the first free block in the disk from position (checking the bitmap)
-int DiskDriver_getFreeBlock(DiskDriver* disk, int start);
+int DiskDriver_getFreeBlock(DiskDriver* disk, unsigned int start);
 
 
 
@@ -64,13 +64,13 @@ void DiskDriver_close(DiskDriver* disk);
 int DiskDriver_resume(DiskDriver* disk);
 
 //Upon request, this maps a page containing the block needed and retuns a pointer to it.
-char* DiskDriver_getBlock(DiskDriver* disk, int block_index);
+char* DiskDriver_getBlock(DiskDriver* disk, unsigned int block_index);
 
 
 
 
 /** Implementation of the functions **/
-int DiskDriver_init(DiskDriver* disk, const char* filename, int num_blocks){
+int DiskDriver_init(DiskDriver* disk, const char* filename, unsigned int num_blocks){
 	
 	int res = open(filename, O_CREAT | O_EXCL | O_RDWR, 0777);
 	if (res == -1){
@@ -163,7 +163,7 @@ int DiskDriver_init(DiskDriver* disk, const char* filename, int num_blocks){
 }
 
 
-int DiskDriver_readBlock(DiskDriver* disk, void* dest, int block_num){
+int DiskDriver_readBlock(DiskDriver* disk, void* dest, unsigned int block_num){
 	
 	if(block_num<0 || block_num > disk->num_entries -1) return -2; //Invalid block num
 	char* cursor = disk->disk_map;
@@ -182,7 +182,7 @@ int DiskDriver_readBlock(DiskDriver* disk, void* dest, int block_num){
 }
 
 
-int DiskDriver_writeBlock(DiskDriver* disk, void* src, int block_num){
+int DiskDriver_writeBlock(DiskDriver* disk, void* src, unsigned int block_num){
 	
 	if(block_num<0 || block_num>disk->num_entries -1) return -1; //Invalid block num
 	char* cursor = disk->disk_map;
@@ -205,7 +205,7 @@ int DiskDriver_writeBlock(DiskDriver* disk, void* src, int block_num){
 }
 
 
-int DiskDriver_freeBlock(DiskDriver* disk, int block_num){
+int DiskDriver_freeBlock(DiskDriver* disk, unsigned int block_num){
 	
 	if(block_num<0 || block_num>disk->num_entries-1) return -1; //Invalid block num
 	char* cursor = disk->disk_map;
@@ -220,7 +220,7 @@ int DiskDriver_freeBlock(DiskDriver* disk, int block_num){
 }
 
 
-int DiskDriver_getFreeBlock(DiskDriver* disk, int start){
+int DiskDriver_getFreeBlock(DiskDriver* disk, unsigned int start){
 	
 	if(start<0 || start>disk->num_entries-1) return -1; //Invalid start block
 	char* cursor = disk->disk_map;
@@ -302,7 +302,7 @@ int DiskDriver_resume(DiskDriver* disk, int fd){
 }
 
 
-char* DiskDriver_getBlock(DiskDriver* disk, int block_index){
+char* DiskDriver_getBlock(DiskDriver* disk, unsigned int block_index){
 	
 	if(block_index<0 || block_index > disk->num_entries-1) return (char*)NULL; //Security check
 	

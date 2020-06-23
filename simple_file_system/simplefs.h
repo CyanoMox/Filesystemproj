@@ -1,20 +1,18 @@
 #pragma once
 #include "disk_driver.h"
 
-/*these are structures stored on disk*/
+//These global constants are really useful to shorten code 
+const int F_FILE_BLOCK_OFFSET = BLOCK_SIZE-sizeof(FileControlBlock) 
+			- sizeof(BlockHeader);
+const int FILE_BLOCK_OFFSET = BLOCK_SIZE-sizeof(BlockHeader);
+const int F_DIR_BLOCK_OFFSET = (BLOCK_SIZE
+		   -sizeof(BlockHeader)
+		   -sizeof(FileControlBlock)
+		    -sizeof(int))/sizeof(int) ;
+const int DIR_BLOCK_OFFSET = (BLOCK_SIZE
+			-sizeof(BlockHeader))/sizeof(int);
 
-/***IMPORTANT NOTICE: due to the implementation of DiskDriver struct,
- * I can't utilize permanent pointers, because there is no guarantee
- * that they aren't unmapped by next operations on the FS, resulting in
- * Segmentation Fault errors or miswriting and misreading that will 
- * damage the FS itself.
- * 
- * These structures are affected by this and will be reimplemented:
- * 
- * -DirectoryHandle
- * -FileHandle
- * 
- * ***/
+/*these are structures stored on disk*/
 
 // header, occupies the first portion of each block in the disk
 // represents a chained list of blocks
@@ -30,7 +28,7 @@ typedef struct {
   int directory_block; // first block of the parent directory
   int block_in_disk;   // repeated position of the block on the disk
   char name[128];
-  int size_in_bytes;
+  int  size_in_bytes;
   int size_in_blocks;
   int is_dir;          // 0 for file, 1 for dir
 } FileControlBlock;
@@ -41,101 +39,115 @@ typedef struct {
 // and can contain some data
 
 /******************* stuff on disk BEGIN *******************/
-//this is the block that contains FCB info (first block of a file)
 typedef struct {
   BlockHeader header;
   FileControlBlock fcb;
-  char data[BLOCK_SIZE-sizeof(FileControlBlock) - sizeof(BlockHeader)] ;
-} FirstFileBlock; 
+  char data[F_FILE_BLOCK_OFFSET];
+} FirstFileBlock;
 
 // this is one of the next physical blocks of a file
 typedef struct {
   BlockHeader header;
-  char  data[BLOCK_SIZE-sizeof(BlockHeader)];
+  char  data[FILE_BLOCK_OFFSET];
 } FileBlock;
 
 // this is the first physical block of a directory
-/**In directories, the location 0 of the array indicates the position of
- * the reminder of the directory itself. If it is = 0xFFFFFFFF, dir has 
- * no reminder.
- * 
- * In the same way, if a location is 0xFFFFFFFF, it means there is no
- * fcb block linked to that dir in that location.**/
 typedef struct {
   BlockHeader header;
   FileControlBlock fcb;
   int num_entries;
-  unsigned int file_blocks[ (BLOCK_SIZE
-		   -sizeof(BlockHeader)
-		   -sizeof(FileControlBlock)
-		    -sizeof(int))/sizeof(int) ];
+  int file_blocks[ (F_DIR_BLOCK_OFFSET];
 } FirstDirectoryBlock;
 
 // this is remainder block of a directory
 typedef struct {
   BlockHeader header;
-  unsigned int file_blocks[ (BLOCK_SIZE-sizeof(BlockHeader))/sizeof(int) ];
+  int file_blocks[ (DIR_BLOCK_OFFSET];
 } DirectoryBlock;
 /******************* stuff on disk END *******************/
 
-  
+
+/***IMPORTANT NOTICE: due to the implementation of DiskDriver struct,
+ * I can't utilize permanent pointers, because there is no guarantee
+ * that they aren't unmapped by next operations on the FS, resulting in
+ * Segmentation Fault errors or miswriting and misreading that will 
+ * damage the FS itself.
+ * 
+ * These structures are affected by this, and will be reimplemented:
+ * 
+ * -DirectoryHandle
+ * -FileHandle
+ * 
+ * ***/
+ 
+
 typedef struct {
   DiskDriver* disk;
   // add more fields if needed
-  int top_dir = 0;		   		   // handle to the top dir
-  int current_directory_block;	   // index of the dir block currently accessed
-  char* filename;				   // it contains the filename of the disk
+  int current_directory_block;	  // index of the dir block currently accessed
 } SimpleFS;
 
 // this is a file handle, used to refer to open files
 typedef struct {
-  SimpleFS* sfs;                   // pointer to memory file system structure
-  int fcb;             			   // index of the first block of the file(read it)
-  int parent_dir;  				   // pointer to the directory where the file is stored
-  int current_block;      		   // current block in the file
-  int pos_in_file;                  // position of the cursor
+  SimpleFS* sfs;                 // pointer to memory file system structure
+  unsigned int fcb;              // index of the first block of the file(read it)
+  unsigned int parent_dir;  	 // index of the directory where the file is stored
+  unsigned int current_block;    // number of current block in the file
+  unsigned int pos_in_file;                // position of the cursor
 } FileHandle;
 
 typedef struct {
-  SimpleFS* sfs;                   // pointer to memory file system structure
-  int dcb;        				   // index of the first block of the directory(read it)
-  int parent_dir;                  // index of the parent directory (-1 if top level)
-  int current_block;               // current block in the directory
-  int pos_in_dir;                  // absolute position of the cursor in the directory
-  int pos_in_block;                // relative position of the cursor in the block
+  SimpleFS* sfs;                 // pointer to memory file system structure
+  unsigned int dcb;       		 // index of the first block of the directory(read it)
+  unsigned int parent_dir;  		 // index of the parent directory (null if top level)
+  unsigned int current_block;    // current block in the directory
+  unsigned int pos_in_dir;       // absolute position of the cursor in the directory
+  unsigned int pos_in_block;     // relative position of the cursor in the block
 } DirectoryHandle;
 
-/*** For design, many of the pointers in this implementation 
- * were rolled to direct variables, within the purpose of avoiding
- * memory leaking and simplyfying variable management.***/
 
-
+/*** Design modifications:
+ * I want every function in this library to return a status int.
+ * For simplicity, eventual handles will be returned via side effect
+ * to caller.
+ * 
+ * This approach has noticeable pros:
+ * 1) No memory leak: Handles could be allocated directly by caller
+ * 		itself in stack, without the hassle of using malloc() and free()
+ * 2) Functions can return different status to caller. This is very 
+ * 		useful in some cases.
+ * 3) Less code.
+ * ***/
+ 
 // initializes a file system on an already made disk
-// returns a handle to the top level directory stored in the first block
-DirectoryHandle* SimpleFS_init(SimpleFS* fs, DiskDriver* disk);
+// returns for side effect a handle to the top level directory 
+// stored in the first block. No return status is needed here
+void SimpleFS_init(SimpleFS* fs, DiskDriver* disk, DirectoryHandle* dest_handle);
 
 // creates the inital structures, the top level directory
 // has name "/" and its control block is in the first position
 // it also clears the bitmap of occupied blocks on the disk
 // the current_directory_block is cached in the SimpleFS struct
 // and set to the top level directory
-void SimpleFS_format(SimpleFS* fs, int block_num);
+int SimpleFS_format(SimpleFS* fs, const char* diskname, int num_blocks);
 
 // creates an empty file in the directory d
-// returns null on error (file existing, no free blocks)
+// returns -1 on error (file existing)
+// returns -2 on error (no free blocks)
+// returns -3 on error (generic reading or writing error)
+// returns for side effect the FileHandle, if no error
 // an empty file consists only of a block of type FirstBlock
-FileHandle* SimpleFS_createFile(DirectoryHandle* d, const char* filename);
+int SimpleFS_createFile(DirectoryHandle* d, const char* filename, FileHandle* dest_handle);
 
 // reads in the (preallocated) blocks array, the name of all files in a directory 
 int SimpleFS_readDir(char** names, DirectoryHandle* d);
 
-
 // opens a file in the  directory d. The file should be exisiting
-FileHandle* SimpleFS_openFile(DirectoryHandle* d, const char* filename);
-
+int SimpleFS_openFile(DirectoryHandle* d, const char* filename, FileHandle* dest_handle);
 
 // closes a file handle (destroyes it)
-int SimpleFS_close(FileHandle* f);
+//int SimpleFS_close(FileHandle* f);
+//No more needed!
 
 // writes in the file, at current position for size bytes stored in data
 // overwriting and allocating new space if necessary
@@ -167,269 +179,217 @@ int SimpleFS_mkDir(DirectoryHandle* d, char* dirname);
 // if a directory, it removes recursively all contained files
 int SimpleFS_remove(SimpleFS* fs, char* filename);
 
-/*** Auxiliary functions ***/
 
-//It controls if a file exists in dir (and remainder), then returns its handle
-FileHandle SimpleFS_seekFile(DirectoryHandle d, const char* filename);
+/*** Function implementation ***/
+void SimpleFS_init(SimpleFS* fs, DiskDriver* disk, DirectoryHandle* dest_handle){
+	
+	dest_handle->sfs = fs;
+	dest_handle->dcb = 0;
+	dest_handle->parent_dir = 0xFFFFFFFF; //invalid block index, because we are top level
+	dest_handle->current_block = 0;
+	dest_handle->pos_in_dir = 0;
+	dest_handle->pos_in_block = 0;
 
-FileHandle seekFile_aux(DirectoryBlock d, const char* filename, DirectoryHandle handle);
-
-
-//Closes fs instance
-int SimpleFS_close(SimpleFS* fs);
-
-/* Function implementation below */
-
-// initializes a file system on an already made disk
-// returns a handle to the top level directory stored in the first block
-DirectoryHandle* SimpleFS_init(SimpleFS* fs, DiskDriver* newdisk){ //TODO: eliminate pointers here
-	
-	//Creating DirectoryHandle
-	DirectoryHandle* first_dir = (DirectoryHandle*)malloc(sizeof(DirectoryHandle));
-	first_dir->sfs = fs;
-	first_dir->dcb = 0;
-	first_dir->parent_dir = 0xFFFFFFFF;
-	first_dir->current_block = 0;
-	first_dir->pos_in_dir = 0;
-	first_dir->pos_in_block = 0;
-	
-	//Updating FS information
-	fs->disk = newdisk;
-	fs->top_dir = 0;
-	fs->current_directory_block = 0;
-	
-	return first_dir;
-	
-void SimpleFS_format(SimpleFS* fs, int block_num){
-	
-	if(DiskDriver_init(fs->disk, fs->filename, block_num)!= 0){
-		printf("Error formatting disk!\n");
-		exit(-1);
-	}
-	
-	//Setting top directory
-	fs->current_directory_block = 0;
-	
-	//Not directly memorized in DirectoryHandle, used only to memorize temporarily in stack. 
-	//Write down or read using DiskDriver functions.
-	FirstDirectoryBlock top_dcb; 
-	BlockHeader top_dcb_header;
-	FileControlBlock top_dcb_fcb;
-	
-	//Header
-	top_dcb_header.previous_block = 0xFFFFFFFF;
-	top_dcb_header.next_block = 0xFFFFFFFF;
-	top_dcb_header.block_in_file = 0; //This block contains a folder FCB.
-	
-	//FCB
-	top_dcb_fcb.durectory_block = 0xFFFFFFFF;
-	top_dcb_fcb.block_in_disk = 0;
-	strncpy(top_dcb_fcb.name, "/", sizeof(char)); //TODO: check this.
-	top_dcb_fcb.size_in_bytes = 512; //It is a folder, I consider all the block full.
-	top_dcb_fcb.size_in_blocks = 1;
-	top_dcb_fcb.is_dir = 1;
-	
-	//FirstDirectoryBlock
-	top_dcb.header = top_dcb_header;
-	top_dcb.fcb = top_dcb_fcb;
-	top_dcb.num_entries = 0;
-	int i;
-	int file_blocks_len = (BLOCK_SIZE-sizeof(BlockHeader)
-		-sizeof(FileControlBlock)-sizeof(int))/sizeof(int));
-	for(i=0;i<file_blocks_len;i++){
-		top_dcb.file_blocks[i] = 0xFFFFFFFF; //initializing file block array
-	}
-	
-	//Writing it down!!!
-	DiskDriver_writeBlock(fs->disk, &top_dcb, top_dcb_fcb.block_in_disk);
 }
 
+
+// creates the inital structures, the top level directory
+// has name "/" and its control block is in the first position
+// it also clears the bitmap of occupied blocks on the disk
+// the current_directory_block is cached in the SimpleFS struct
+// and set to the top level directory
+int SimpleFS_format(SimpleFS* fs, const char* diskname, int num_blocks){
+	
+	//Creates disk file and initializes bitmap
+	int res = DiskDriver_init(fs->disk, diskname, num_blocks);
+	if (res!=0) {
+		printf("Error in formatting!\n");
+		return -1;
+	}
+	fs->current_directory_block = 0; //set on top dir
+	
+	BlockHeader top_header;
+	FileControlBlock top_fcb;
+	FirstDirectoryBlock top_dir;
+	
+	//Building BlockHeader
+	top_header.previous_block = 0xFFFFFFFF;
+	top_header.next_block = 0xFFFFFFFF;
+	top_header.block_in_file = 0;
+	
+	//Building FileControlBlock
+	top_fcb.directory_block = 0xFFFFFFFF; //Because top dir has no parent
+	top_fcb.block_in_disk = 0; //Fixed index for this implementation
+	strncpy(top_fcb.name, "/", 128*sizeof(char));
+	top_fcb.size_in_bytes = 0; //I assume that a dir has no size
+	top_fcb.size_in_blocks = 0; //Will be updated if remainder blocks are added
+	top_fcb.is_dir = 1;
+	
+	//Building FirstDirectoryBlock
+	top_dir.header = top_header;
+	top_dir.fcb = top_fcb;
+	top_dir.num_entries = 0;
+	
+	int i;
+	for(i=0;i<F_DIR_BLOCK_OFFSET;i++) top_dir.file_blocks[i] = 0xFFFFFFFF;
+	
+	//Writing down to file!!!
+	res = DiskDriver_writeBlock(fs->disk, &top_dir, 0);
+	if (res==-1){
+		printf("Error writing to disk!\n");
+		return -1;
+	}
+	return 0;
+}
+
+
 // creates an empty file in the directory d
-// returns null on error (file existing, no free blocks)
+// returns -1 on error (file existing)
+// returns -2 on error (no free blocks)
+// returns -3 on error (generic reading or writing error)
+// returns for side effect the FileHandle, if no error
 // an empty file consists only of a block of type FirstBlock
-FileHandle SimpleFS_createFile(DirectoryHandle d, const char* filename){
+int SimpleFS_createFile(DirectoryHandle* d, const char* filename, FileHandle* dest_handle){
 	
-	//Return for an already existing file
-	FileHandle res = SimpleFS_seekFile(DirectoryHandle d, const char* filename);
-	if(res.fcb != 0xFFFFFFFF){
-		res.fcb = 0xFFFFFFFF;  //It marks an invalid FileHandle (equivalent to null)
-		return res;
+	FirstDirectoryBlock pwd_dcb;
+	
+	int res = DiskDriver_readBlock(d->sfs->disk, &pwd_dcb, d->dcb);
+	if(res!=0) {
+		printf("Error reading first dir block\n");
+		return -3;
+	}	
+
+	char names[pwd_dcb.num_entries][128]; //Allocating name matrix
+	//we have num_entries sub-vectors by 128 bytes
+	
+	if(SimpleFS_readDir(names, d)==-1){
+		return -3;
 	}
 	
-	//Return for an invalid reading
-	if(res.fcb == 0xFFFFFFFF && res.parent == 0){
-		res.fcb = 0xFFFFFFFF;  //It marks an invalid FileHandle (equivalent to null)
-		return res;
-	}
-	
-	//Here creating file
-	FirstDirectoryBlock dir = d.dcb;
-	int i = 1; //location 0 is reserved for file_blocks array
-	int array_len = (BLOCK_SIZE-sizeof(BlockHeader)-sizeof(FileControlBlock)-sizeof(int))/sizeof(int);
-	while(i<array_len){
-		if(dir.file_blocks[i]==0xFFFFFFFF){
-			dir.file_blocks[i] = DiskDriver_getFreeBlock(d.fs.disk, 0); //It works because -1 is read like 0xFFFFFFFF in unsigned int mode
-			
-			res.fcb = dir.file_blocks[i]; //If this == -1, no free file blocks available
-			res.parent_dir = d.dcb;
-			res.current_block = dir.file_blocks[i]; //It corresponds to fcb because it is the first block
-			res.pos_in_file = 0;
-			return res;
+	//Checking for same filename
+	int i;
+	for(i=0;i<pwd_dcb.num_entries;i++){
+		if(strncmp(filename, names[i], 128*sizeof(char))==0){
+			printf("Filename already exists!\n");
+			return -1;
 		}
-	
-	//TODO: check for space in remainder dir blocks, if any, allocate one!
 	}
 	
+	res = DiskDriver_getFreeBlock(d->sfs->disk, 0); //retrieving first free block available
+	if(res==-1) {
+		printf("No free block available!\n");
+		return -2;
+	}
 	
+	//Creating FirstFileBlock
+	FirstFileBlock ffb;
+	ffb.header.previous_block = 0xFFFFFFFF; //First block
+	ffb.header.next_block = 0xFFFFFFFF; //Not allocated yet - last block
+	ffb.header.block_in_file = 0; //First block
+	ffb.fcb.directory_block = pwd_dcb.block_in_disk; //Parent dir
+	ffb.fcb.block_in_disk = res;
+	strncpy(ffb.fcb.name, filename , 128*sizeof(char)); //Setting name
+	ffb.fcb.size_in_bytes = 0; //File is size 0
+	ffb.fcb.size_in_blocks = 1; //Only first block
+	ffb.fcb.is_dir = 0; //No, it's a file.
+	
+	for(i=0;i<F_FILE_BLOCK_OFFSET;i++){
+		ffb.data[i] = 0; //Initializing data field
+	}
+	
+	//Writing FirstFileBlock down at res position
+	res = DiskDriver_writeBlock(d->sfs->disk, &ffb, res);
+	if(res!=0){
+		printf("Error writing down block");
+	}
+	
+	return 0;
 }
 
 // reads in the (preallocated) blocks array, the name of all files in a directory 
-int SimpleFS_readDir(char** names, DirectoryHandle* d){}
-
-
-// opens a file in the  directory d. The file should be exisiting
-FileHandle* SimpleFS_openFile(DirectoryHandle* d, const char* filename){}
-
-
-// closes a file handle (destroyes it)
-int SimpleFS_close(FileHandle* f){}
-
-// writes in the file, at current position for size bytes stored in data
-// overwriting and allocating new space if necessary
-// returns the number of bytes written
-int SimpleFS_write(FileHandle* f, void* data, int size){}
-
-// writes in the file, at current position size bytes stored in data
-// overwriting and allocating new space if necessary
-// returns the number of bytes read
-int SimpleFS_read(FileHandle* f, void* data, int size){}
-
-// returns the number of bytes read (moving the current pointer to pos)
-// returns pos on success
-// -1 on error (file too short)
-int SimpleFS_seek(FileHandle* f, int pos){}
-
-// seeks for a directory in d. If dirname is equal to ".." it goes one level up
-// 0 on success, negative value on error
-// it does side effect on the provided handle
- int SimpleFS_changeDir(DirectoryHandle* d, char* dirname){}
-
-// creates a new directory in the current one (stored in fs->current_directory_block)
-// 0 on success
-// -1 on error
-int SimpleFS_mkDir(DirectoryHandle* d, char* dirname){}
-
-// removes the file in the current directory
-// returns -1 on failure 0 on success
-// if a directory, it removes recursively all contained files
-int SimpleFS_remove(SimpleFS* fs, char* filename){}
-
-
-
-
-FileHandle SimpleFS_seekFile(DirectoryHandle d, const char* filename){
+int SimpleFS_readDir(char** names, DirectoryHandle* d){
 	
-	int file_blocks_len = (BLOCK_SIZE-sizeof(BlockHeader)
-		-sizeof(FileControlBlock)-sizeof(int))/sizeof(int));
+	
+	FirstDirectoryBlock pwd_dcb;
+	
+	int res = DiskDriver_readBlock(d->sfs->disk, &pwd_dcb, d->dcb);
+	if(res!=0) {
+		printf("Error reading first dir block\n");
+		return -1;
+	}
+	
+	//BlockHeader* pwd_header = (BlockHeader*)&pwd_dcb.header;
+	//FileControlBlock* pwd_fcb = (FileControlBlock*)&pwd_dcb.fcb;
+	
+	//Exploring dir
+	int i, j=0 , remaining_files = pwd_dcb.num_entries;
+	FirstFileBlock temp_ffb;
+	
+	for(i=0;i<F_DIR_BLOCK_OFFSET;i++){
+		if(pwd_dcb.file_blocks[i]!=0xFFFFFFFF){ //if index is valid
+			
+			remaining_files--;
+			
+			//Reading ffb of every file to obtain name from fcb
+			res = DiskDriver_readBlock(d->sfs->disk, &temp_ffb, pwd_dcb.file_blocks[i]);
+			if(res!=0) {
+				printf("Error reading file block\n");
+				return -1;
+			}
+			
+			strncpy(names[j],temp_ffb.fcb.name,128*sizeof(char)); //I'm assuming char names[pwd_dcb.num_entries][128]
+			j++;
+		}
+	}
+	if (remaining_files==0) return 0;
+	//else...
+	
+	if(pwd_dcb.header.next_block==0xFFFFFFFF){
+			printf("Invalid num_entries, folder is damaged!\n");
+			return -1;
+		}
+	//Read directory remainder
+		DirectoryBlock pwd_rem,
 		
-	FileHandle invalid_FileHandle_badIndex; //Return for invalid index error
-	invalid_file_handle.fcb = 0xFFFFFFFF;
-	invalid_file_handle.parent_dir = 0;
-	
-	FileHandle invalid_FileHandle_noFile; //Return for inexistent file error
-	invalid_file_handle.fcb = 0xFFFFFFFF;
-	invalid_file_handle.parent_dir = 0xFFFFFFFF;
-	
-	//reading folder block
-	FirstDirectoryBlock pwd;
-	int res = DiskDriver_readBlock(fs->disk, &pwd, d.dcb); //TODO: is &pwd correct?
-	if (res==-2){
-		printf("Invalid Block Num\n");
-		return invalid_FileHandle_badIndex;
-	}
-	if (res==-1){
-		printf("Empty Block\n");
-		return invalid_FileHandle_badIndex;
-	}
-	
-	int i=1; //0 is a location reserved to remainder folder (if any)
-	FirstFileBlock ffb;
-	
-	//checking for file existence in first dir block
-	while(i<pwd.num_entries &&i<file_blocks_len){ //TODO: file_blocks array has to be contiguous.
-			res = DiskDriver_readBlock(fs->disk, &ffb, pwd.file_blocks[i]);
-		if (res==-2){
-			printf("Invalid Block Num\n");
-			return invalid_FileHandle_badIndex;
+		res = DiskDriver_readBlock(d->sfs->disk, &pwd_rem, pwd_dcb.header.next_block);
+		if(res!=0) {
+			printf("Error reading directory remainder block\n");
+			return -1;
 		}
-		if (res==-1){
-			printf("Empty Block\n");
-			return invalid_FileHandle_badIndex;
+	
+	do{
+		//Again...
+		for(i=0;i<DIR_BLOCK_OFFSET;i++){
+			if(pwd_rem.file_blocks[i]!=0xFFFFFFFF){ //if index is valid
+			
+				remaining_files--;
+			
+				//Reading ffb of every file to obtain name from fcb
+				res = DiskDriver_readBlock(d->sfs->disk, &temp_ffb, pwd_rem.file_blocks[i]);
+				if(res!=0) {
+					printf("Error reading file block\n");
+					return -1;
+				}
+			
+				strncpy(names[j],temp_ffb.fcb.name,128*sizeof(char)); //I'm assuming char names[pwd_dcb.num_entries][128]
+				j++;
+			}
+			
+			if (remaining_files!=0){
+				//Checks if we reached the final remainder block	
+				if(pwd_dcb.header.next_block==0xFFFFFFFF){
+					printf("Invalid num_entries, folder is damaged!\n");
+					return -1;
+				}
+			
+				//Read directory remainder	
+				res = DiskDriver_readBlock(d->sfs->disk, &pwd_rem, pwd_dcb.header.next_block);
+				if(res!=0) {
+					printf("Error reading directory remainder block\n");
+					return -1;
+				}
+			}
 		}
-		if(memcmp(ffb.fcb.name, filename, sizeof(char)*128)==0){ //this only works if filename is created by strncpy
-			printf("File exists!\n");
-			FileHandle file;
-			file.sfs = d.sfs;
-			file.fcb = ffb;
-			file.parent_dir = d.dcb;
-			file.current_block = pwd.file_blocks[i];
-			file.pos_in_file = 0;
-			return file;
-		}
-		i++;
 	}
-	
-	//checking eventual remainder folder blocks
-	if(pwd.file_blocks[0]==0xFFFFFFFF){
-		printf("File doesn't exist!\n");
-		return invalid_FileHandle_noFile;
-	}
-	else return seekFile_aux(pwd.file_blocks[i], filename);
-}
-
-
-FileHandle seekFile_aux(DirectoryBlock d, filename, DirectoryHandle handle){
-	int file_blocks_len = (BLOCK_SIZE-sizeof(BlockHeader))/sizeof(int);
-	
-	//Reading file array
-	int i=1; //pos 0 is reserved for eventual further remainder
-	int array_len = (BLOCK_SIZE-sizeof(BlockHeader))/sizeof(int);
-	
-	FileHandle invalid_FileHandle_badIndex; //Return for invalid index error
-	invalid_file_handle.fcb = 0xFFFFFFFF;
-	invalid_file_handle.parent_dir = 0;
-	
-	FileHandle invalid_FileHandle_noFile; //Return for inexistent file error
-	invalid_file_handle.fcb = 0xFFFFFFFF;
-	invalid_file_handle.parent_dir = 0xFFFFFFFF;
-	
-	FirstFileBlock ffb;
-	while(i<array_len){ //I don't check again num_entries for simplicity. I assume that blocks are contiguous in the array.
-		res = DiskDriver_readBlock(fs->disk, &ffb, d.file_blocks[i]);
-		if (res==-2){
-			printf("Invalid Block Num\n");
-			return invalid_FileHandle_badIndex;
-		}
-		if (res==-1){
-			printf("Empty Block\n");
-			return invalid_FileHandle_badIndex;
-		}
-		if(memcmp(ffb.fcb.name, filename, sizeof(char)*128)==0){ //this only works if filename is created by strncpy
-			printf("File exists!\n");
-			FileHandle file;
-			file.sfs = handle.sfs;
-			file.fcb = ffb;
-			file.parent_dir = handle.dcb;
-			file.current_block = d.file_blocks[i];
-			file.pos_in_file = 0;
-			return file;
-		}
-		i++;
-	}
-	//checking eventual remainder folder blocks
-	if(pwd.file_blocks[0]==0xFFFFFFFF){
-		printf("File doesn't exist!\n");
-		return invalid_FileHandle_noFile;
-	}
-	else return seekFile_aux(d.file_blocks[i], filename, handle);
+	while(remaining_files!=0)
 }
