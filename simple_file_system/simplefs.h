@@ -154,10 +154,9 @@ int SimpleFS_openFile(DirectoryHandle* d, const char* filename, FileHandle* dest
 // returns the number of bytes written
 int SimpleFS_write(FileHandle* f, void* src_data, int size);
 
-// writes in the file, at current position size bytes stored in data
-// overwriting and allocating new space if necessary
+// reads in the file, at current position size bytes stored in data
 // returns the number of bytes read
-int SimpleFS_read(FileHandle* f, void* data, int size);
+int SimpleFS_read(FileHandle* f, void* dst_data, int size);
 
 // returns the number of bytes read (moving the current pointer to pos)
 // returns pos on success
@@ -575,4 +574,66 @@ int SimpleFS_write(FileHandle* f, void* src_data, int size){
 		ffb = fb;
 		
 	}
+}
+
+
+int SimpleFS_read(FileHandle* f, void* dst_data, int size){
+	//TODO: This implementation is cleaner and more elegant of the one above. Fix that.
+	
+	FileBlock ffb; //same as SimpleFS_write
+	FirstFileBlock* ffb_pointer = &ffb;
+	int read_bytes = 0;
+	
+	char* data_pointer = ffb_pointer->data; //For the FirstFileBlock
+	if(DiskDriver_readBlock(f->sfs->disk, ffb_pointer, f->fcb) != 0){
+		printf("Error reading First Block\n");
+		return read_bytes;
+	}
+	
+	if(size<=F_FILE_BLOCK_OFFSET){
+		memcpy(dst_data, data_pointer, size);
+		read_bytes = size;
+		return read_bytes;
+	}
+	else{
+		memcpy(dst_data, data_pointer, F_FILE_BLOCK_OFFSET);
+		read_bytes = F_FILE_BLOCK_OFFSET;
+		return read_bytes;
+	}
+	//If there are more blocks...
+	
+	FileBlock fb; //This is the next block
+	int rem_data = size-read_bytes; //It counts remaining bytes to read
+		
+	while(1){
+		
+		//If the previous was the last block
+		if(ffb.header.next_block==0xFFFFFFFF){
+			printf("File is shorter than size");
+			return read_bytes;
+		}
+		//Loading next block in memory
+		if(DiskDriver_readBlock(f->sfs->disk, &fb, ffb.header.next_block)){
+			printf("Error reading First Block\n");
+			return read_bytes;
+		}
+		//Reading it
+		if(rem_data<=FILE_BLOCK_OFFSET){
+			memcpy(dst_data[size-rem_data], fb.data, rem_data);
+			read_bytes += rem_data;
+			return read_bytes;
+		}
+		else{
+			memcpy(dst_data[size-rem_data], fb.data, FILE_BLOCK_OFFSET);
+			read_bytes += FILE_BLOCK_OFFSET;
+			rem_data = size-read_bytes;
+		}
+		//Son becomes father of his next
+		ffb = fb;
+	}
+}
+
+
+int SimpleFS_changeDir(DirectoryHandle* d, char* dirname){
+	
 }
