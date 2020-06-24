@@ -152,7 +152,7 @@ int SimpleFS_openFile(DirectoryHandle* d, const char* filename, FileHandle* dest
 // writes in the file, at current position for size bytes stored in data
 // overwriting and allocating new space if necessary
 // returns the number of bytes written
-int SimpleFS_write(FileHandle* f, void* data, int size);
+int SimpleFS_write(FileHandle* f, void* src_data, int size);
 
 // writes in the file, at current position size bytes stored in data
 // overwriting and allocating new space if necessary
@@ -162,7 +162,8 @@ int SimpleFS_read(FileHandle* f, void* data, int size);
 // returns the number of bytes read (moving the current pointer to pos)
 // returns pos on success
 // -1 on error (file too short)
-int SimpleFS_seek(FileHandle* f, int pos);
+//int SimpleFS_seek(FileHandle* f, int pos); 
+//Unuseful in this implementation
 
 // seeks for a directory in d. If dirname is equal to ".." it goes one level up
 // 0 on success, negative value on error
@@ -179,6 +180,10 @@ int SimpleFS_mkDir(DirectoryHandle* d, char* dirname);
 // if a directory, it removes recursively all contained files
 int SimpleFS_remove(SimpleFS* fs, char* filename);
 
+/*** Auxiliary Funcions ***/
+//It calculate free space, reading the bitmap iteratively with DiskDriver_getFreeBlock()
+int SimpleFS_checkFreeSpace(SimpleFS* fs);
+
 
 /*** Function implementation ***/
 void SimpleFS_init(SimpleFS* fs, DiskDriver* disk, DirectoryHandle* dest_handle){
@@ -193,11 +198,6 @@ void SimpleFS_init(SimpleFS* fs, DiskDriver* disk, DirectoryHandle* dest_handle)
 }
 
 
-// creates the inital structures, the top level directory
-// has name "/" and its control block is in the first position
-// it also clears the bitmap of occupied blocks on the disk
-// the current_directory_block is cached in the SimpleFS struct
-// and set to the top level directory
 int SimpleFS_format(SimpleFS* fs, const char* diskname, int num_blocks){
 	
 	//Creates disk file and initializes bitmap
@@ -243,12 +243,6 @@ int SimpleFS_format(SimpleFS* fs, const char* diskname, int num_blocks){
 }
 
 
-// creates an empty file in the directory d
-// returns -1 on error (file existing)
-// returns -2 on error (no free blocks)
-// returns -3 on error (generic reading or writing error)
-// returns for side effect the FileHandle, if no error
-// an empty file consists only of a block of type FirstBlock
 int SimpleFS_createFile(DirectoryHandle* d, const char* filename, FileHandle* dest_handle){
 	
 	FirstDirectoryBlock pwd_dcb;
@@ -313,7 +307,7 @@ int SimpleFS_createFile(DirectoryHandle* d, const char* filename, FileHandle* de
 	return 0;
 }
 
-// reads in the (preallocated) blocks array, the name of all files in a directory 
+
 int SimpleFS_readDir(char** names, DirectoryHandle* d){
 	
 	
@@ -402,7 +396,6 @@ int SimpleFS_readDir(char** names, DirectoryHandle* d){
 }
 
 
-// opens a file in the  directory d. The file should be exisiting
 int SimpleFS_openFile(DirectoryHandle* d, const char* filename, FileHandle* dest_handle){
 	
 	FirstDirectoryBlock pwd_dcb;
@@ -418,46 +411,168 @@ int SimpleFS_openFile(DirectoryHandle* d, const char* filename, FileHandle* dest
 	
 	
 	//now retrieving FirstFileBlock index
-	int array_num; //This value will record the position in the array of the filename itself. From that, it's easy to retrieve the fileindex
+	int array_num = -1; //This value will record the position in the array of the filename itself. From that, it's easy to retrieve the fileindex
+	
 	for(i=0;i<pwd_dcb.num_entries;i++){
-		if(strcmp(names[i],filename, 128*sizeof(char))==0){
-			array_num = i;
-			//if filename is in the first block
-			if (array_num<F_DIR_BLOCK_OFFSET){
-					dest_handle->sfs = d->sfs;
-					dest_handle->fcb = pwd_dcb.file_blocks[i];
-					dest_handle->parent_dir = pwd_dcb.dcb;
-					dest_handle->current_block = 0;
-					dest_handle->pos_in_file = 0;
-					
-					return 0;
-			}
-			//else
-			array_num -= F_DIR_BLOCK_OFFSET; //excluding first dir block
-			array_num = array_num/DIR_BLOCK_OFFSET; //this is the remainder block in the LL that contains the file
-			int offset = array_num % DIR_BLOCK_OFFSET; //this is the offset to obtain the file in that block
-			
-			//putting in RAM that reminder block
-			DirectoryBlock pwd_rem;
-			//passing explicitly from FirstDirectoryBlock to DirectoryBlock
-			if(DiskDriver_readBlock(pwd_dcb.sfs->disk, &pwd_rem, pwd_dcb.header.next_block)!=0)
-				return -1;
-			//getting right DirBlock trough iterations
-			for(i=0;i<array_num;i++){
-				if(DiskDriver_readBlock(pwd_rem.sfs->disk, &pwd_rem, pwd_rem.header.next_block)!=0)
-				return -1;
-			}
-			//now returning handle
+		if(strcmp(names[i],filename, 128*sizeof(char))==0) array_num = i;
+	}
+	//if no filename match
+	if(array_num==-1){
+		printf("File not found\n");
+		return -1;
+	}
+		
+	//if filename is in the first directory block
+	if(array_num<=F_DIR_BLOCK_OFFSET){
+		
+		if (array_num<F_DIR_BLOCK_OFFSET){
 			dest_handle->sfs = d->sfs;
-			dest_handle->fcb = pwd_rem.file_blocks[offset];
-			dest_handle->parent_dir = d->dcb;
+			dest_handle->fcb = pwd_dcb.file_blocks[i];
+			dest_handle->parent_dir = pwd_dcb.fcb.block_in_disk;
 			dest_handle->current_block = 0;
 			dest_handle->pos_in_file = 0;
 			
 			return 0;
 		}
 	}
-	//if no filename match
-	printf("File not found\n");
-	return -1;
+	//else picking un that reminder block
+	
+	array_num -= F_DIR_BLOCK_OFFSET; //excluding first dir block
+	int offset = array_num % DIR_BLOCK_OFFSET; //this is the offset to obtain the file in that block
+	int rem_dir_num = array_num/DIR_BLOCK_OFFSET; //this is the remainder block in the LL that contains the file
+	
+		
+	//putting reminder block in stack 
+	DirectoryBlock pwd_rem;
+		
+	//passing explicitly from FirstDirectoryBlock to DirectoryBlock
+	if(DiskDriver_readBlock(pwd_dcb.sfs->disk, &pwd_rem, pwd_dcb.header.next_block)!=0)
+		return -1;
+		
+	//getting right DirBlock trough iterations
+	for(i=0;i<rem_dir_num;i++){
+		if(DiskDriver_readBlock(pwd_rem.sfs->disk, &pwd_rem, pwd_rem.header.next_block)!=0) //TODO: check this out
+			return -1;
+	}
+	
+	//now returning handle
+	dest_handle->sfs = d->sfs;
+	dest_handle->fcb = pwd_rem.file_blocks[offset];
+	dest_handle->parent_dir = d->dcb;
+	dest_handle->current_block = 0;
+	dest_handle->pos_in_file = 0;
+		
+	return 0;
+	
+}
+
+
+int SimpleFS_write(FileHandle* f, void* src_data, int size){
+	
+	int written_size = 0; //For return purposes
+	//FirstFileBlock ffb;
+	FileBlock ffb; //I prefer to read FirstFileBlock as FileBlock for further iterations!
+	FirstFileBlock* ffb_pointer = &ffb; //For first time only
+	int current_block = f->fcb;
+	
+	int res = DiskDriver_readBlock(f->sfs->disk, &ffb, current_block);
+	if(res!=0) {
+		printf("Error reading First File Block\n");
+		return -1;
+	}
+	
+	//Writing/Overwriting FirstFileBlock in stack and then writing back
+	if(size>F_FILE_BLOCK_OFFSET){
+		memcpy(ffb_pointer->data, src_data, F_FILE_BLOCK_OFFSET);
+		written_size += F_FILE_BLOCK_OFFSET;
+		
+		//Writing back Block to File
+		res = DiskDriver_writeBlock(f->sfs->disk, &ffb, current_block);
+		if(res!=0){
+			printf("Error writing First File Block\n");
+			return -1;
+		}
+	}
+	else{
+		memcpy(ffb_pointer->data, src_data, size);
+		written_size += size;
+		
+		//Writing back Block to File
+		res = DiskDriver_writeBlock(f->sfs->disk, &ffb, current_block);
+		if(res!=0){
+			printf("Error writing First File Block\n");
+			return -1;
+		}
+		return written_size;
+	}
+	
+	//If we aren't done writing the whole array yet...
+	FileBlock fb; //Preparing new block to allocate
+	size -= F_FILE_BLOCK_OFFSET; //Calculating remainder size
+	src_data += F_FILE_BLOCK_OFFSET; //Calculating new pointer
+	
+	int i;
+	
+	while(1){ //Until one return condition verifies
+		if(ffb.header.next_block==0xFFFFFFFF){ //If no next block
+			
+			//Allocating new block before writing it
+			res = DiskDriver_getFreeBlock(f->sfs->disk, 0);
+			if(res!=0){
+				printf("Error allocating next File Block\n");
+				return -1;
+			}
+			
+			//Updating header of FirstFileBlock
+			ffb.header.next_block = res;
+			if(DiskDriver_writeBlock(f->sfs->disk, &ffb, current_block)!=0){
+				printf("Cannot append next block to previous one");
+			}
+			
+			//Initializing new FileBlock
+			for(i=0;i<BLOCK_SIZE;i++){
+				(char*)&fb[i] = 0;
+			}
+			//Creating new FileBlock in memory
+			fb.header.previous_block = current_block;
+			fb.header.next_block = 0xFFFFFFFF;
+			fb.header.block_in_file = ffb.header.block_in_file+1;
+		}
+		//else simply use existing next block
+		else{
+			if(DiskDriver_readBlock(f->sfs->disk, &fb, ffb.header.next_block)!=0){
+				printf("Error reading next block\n");
+				return -1;
+			}
+		}
+			
+		//Writing/Overwriting next block
+		if(size>FILE_BLOCK_OFFSET){
+			memcpy(fb.data, src_data, FILE_BLOCK_OFFSET);
+			written_size += FILE_BLOCK_OFFSET;
+			
+			//Writing new Block to File
+			if(DiskDriver_writeBlock(f->sfs->disk, &fb, ffb.header.next_block)!=0){
+				printf("Error writing next File Block\n");
+				return -1;
+			}
+		}
+		else{
+			memcpy(fb.data, src_data, size);
+			written_size += size;
+			
+			//Writing new Block to File
+			if(DiskDriver_writeBlock(f->sfs->disk, &fb, ffb.header.next_block)!=0){
+				printf("Error writing next File Block\n");
+				return -1;
+			}
+			return written_size;
+		}
+		//Preparing for next iteration
+		size -= FILE_BLOCK_OFFSET;
+		src_data += FILE_BLOCK_OFFSET; 
+		current_block = ffb.header.next_block;
+		ffb = fb;
+		
+	}
 }
