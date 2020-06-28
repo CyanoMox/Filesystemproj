@@ -174,10 +174,13 @@ int SimpleFS_changeDir(DirectoryHandle* d, char* dirname);
 // -1 on error
 int SimpleFS_mkDir(DirectoryHandle* d, char* dirname);
 
+// It gets as an argument the index of the dir or the file to erase.
+// I made this to avoid rewiting the same code again and to avoid
+// 		confusion if a dir and a file have the same name.
 // removes the file in the current directory
 // returns -1 on failure 0 on success
 // if a directory, it removes recursively all contained files
-int SimpleFS_remove(SimpleFS* fs, char* filename);
+int SimpleFS_remove(SimpleFS* fs, int index);
 
 /*** Auxiliary Funcions ***/
 //It calculate free space, reading the bitmap iteratively with DiskDriver_getFreeBlock()
@@ -392,6 +395,8 @@ int SimpleFS_readDir(char** names, DirectoryHandle* d){
 		}
 	}
 	while(remaining_files!=0)
+	
+	return 0;
 }
 
 
@@ -636,4 +641,434 @@ int SimpleFS_read(FileHandle* f, void* dst_data, int size){
 
 int SimpleFS_changeDir(DirectoryHandle* d, char* dirname){
 	
+	//Generating updir name for comparison
+	char[128] updir;
+	strncpy(updir, "..", 128);
+	
+	FileHandle dest_handle;
+	if(strncmp(dirname, updir, 128)!=0){
+		
+		if(SimpleFS_openFile(d, dirname, dest_handle)!=0){
+			return -1;
+		}
+		/*This works because header and fcb of FirstFileBlock 
+		 * and FirstDirBlock have same offsets, so simply get FileHandle
+		 * by openFile() and cast it into a DirectoryHandle*/
+		d = (DirectoryHandle*) dest_handle;	
+		
+		//TODO: need to check for a file with same name.
+		if(d->dcb.fcb.is_dir==0){
+			printf("This is not a dir\n");
+			return -1;
+		}
+		return 0;
+	}
+	//If name is ".."
+	
+	//Retrieving parent of the parent dir
+	FirstDirectoryBlock parent;
+	
+	//Checking if we are in top dir. If so, return top dir handle.
+	if(d->parent_dir == 0xFFFFFFFF){
+		printf("We already are top_dir!\n");
+		return 0; //Do not modify handle.
+	}
+	
+	if(DiskDriver_readBlock(d->sfs->disk, &parent, d->parent_dir)!=0){
+		printf("Error retrieving parent dir!\n"); 
+		
+	}
+	
+	DirectoryHandle updir_handle; 
+	updir_handle.sfs = d->sfs;
+	updir_handle.dcb = d->parent_dir;
+	updir_handle.parent_dir = parent.fcb.directory_block;
+	updir_handle.current_block = 0;
+	updir_handle.pos_in_dir = 0;
+	updir_handle.pos_in_block = 0;
+	
+	memcpy(d, &updir_handle, sizeof(DirectoryHandle));
+	
+	return 0;
+}
+
+
+int SimpleFS_mkDir(DirectoryHandle* d, char* dirname){
+	
+	//I check if the dir has one or more remainders
+	FirstDirectoryBlock pwd;
+	
+	DirectoryBlock* pwd_pointer = (DirectoryBlock*) &pwd; //Necessary for further type casts.
+	
+	FirstDirectoryBlock new_dir; //New dir dcb
+	if(DiskDriver_readBlock(d->sfs->disk, &pwd, d->dcb)!=0){
+		printf("Error reading First Directory Block\n");
+		return -1;
+	}
+	
+	//I use SimpleFS_changeDir to see if there is already a subdir with same name.
+	//I dont' mind it's side effect, so I will allocate a fake handle.
+	//This actually includes ".." case, which is not possible.
+	DirectoryHandle fake_handle;
+	
+	if(SimpleFS_changeDir(&fake_handle, dirname) == 0){
+		printf("Error, such directory already exists\n");
+		return -1;
+	}
+	
+	int is_rem = 0; //If the dir has at least 1 remainder block, it gets true.
+	
+	while(pwd.header.next_block!=0xFFFFFFFF){
+		//It works also on DirectoryBlock and FirstDirectoryBlock, because header offsets are the same
+		//It reaches the last block used by the dir
+		if(DiskDriver_readBlock(d->sfs->disk, &pwd, pwd.header.next_block)!=0){
+			printf("Error reading Next Directory Block\n");
+			return -1;
+		}
+		is_rem = 1;
+	}
+	
+	int i, is_full = 1, free_index;
+	
+	//Checking if there is more space in array
+	if(is_rem == 0){ //Block is a FirstDirectoryBlock		
+		
+		for(i=0;i<F_DIR_BLOCK_OFFSET;i++){
+			if(pwd.file_blocks[i] != 0xFFFFFFFF;) { //Picks the first empty pos in array
+				is_full = 0;
+				break;
+			}
+		}
+		if(is_full == 0){
+			//Getting first available block by bitmap
+			free_index = DiskDriver_getFreeBlock(d->sfs->disk, 0);
+			if(free_index == -1){
+				printf("No free space!\n");
+				return -1;
+			}
+			pwd.file_blocks[i] = free_index; //Folder was allocated on array
+			
+			//Compiling new dir block
+			new_dir.header.previous_block = 0xFFFFFFFF;
+			new_dir.header.next_block = 0xFFFFFFFF;
+			new_dir.header.block_in_file = 0;
+			new_dir.fcb.directory_block = d->dcb.fcb->block_in_disk;
+			new_dir.fcb.block_in_disk = free_index;
+			strncpy(new_dir.fcb.name, dirname, 128*sizeof(char));
+			new_dir.fcb.size_in_bytes = 0; //I assume dirs have no size
+			new_dir.fcb.size_in_blocks = 1; //Only this block is occupied TODO: check in above implementation
+			new_dir.fcb.is_dir = 1;
+			new_dir.num_entries = 0; //Dir is empty
+			for(i=0;i<F_DIR_BLOCK_OFFSET;i++){
+				new_dir.file_blocks[i] = 0xFFFFFFFF;
+			}
+			
+			//Now write it down!
+			if(DiskDriver_writeBlock(d->sfs->disk, &new_dir, free_index)!=0){
+				printf("Error writing new dir\n");
+				return -1;
+			}		
+			return 0;		
+		}
+		
+		else{ //Creating a new DirectoryBlock and allocating it in free_index
+			DirectoryBlock dir_rem;
+			
+			free_index = DiskDriver_getFreeBlock(d->sfs->disk, 0);
+			if (free_index == -1) {
+				printf("No free space allocating new remainder block!\n");
+				return -1;
+			}
+			
+			//Compiling remainder block
+			dir_rem.header.previous_block = pwd.fcb.block_in_disk;
+			dir_rem.header.next_block = 0xFFFFFFFF;
+			dir_rem.header.block_in_file = pwd.header.block_in_file+1;
+			for(i=0;i<DIR_BLOCK_OFFSET;i++){
+				dir_rem.file_blocks[i] = 0xFFFFFFFF;
+			}
+			
+			//Writing remainder block down on the disk
+			if(DiskDriver_writeBlock(d->sfs->disk, &dir_rem, free_index)!=0){
+				printf("Error writing new dir\n");
+				return -1;
+			}
+			//Recursion!
+			return SimpleFS_mkDir(d, dirname);
+		}	
+		
+	}
+	else{ //Block is a DirectoryBlock use pwd_pointer instead of pwd itself.
+		
+		for(i=0;i<DIR_BLOCK_OFFSET;i++){
+			if(pwd_pointer->file_blocks[i] != 0xFFFFFFFF;) { //Picks the first empty pos in array
+				is_full = 0;
+				break;
+			}
+		}
+		if(is_full == 0){
+			free_index = DiskDriver_getFreeBlock(d->sfs->disk, 0);
+			if(free_index == -1){
+				printf("No free space!\n");
+				return -1;
+			}
+			pwd_pointer->file_blocks[i] = free_index; //Folder was allocated on array
+		
+			//Compiling new dir block
+			new_dir.header.previous_block = 0xFFFFFFFF;
+			new_dir.header.next_block = 0xFFFFFFFF;
+			new_dir.header.block_in_file = 0;
+			new_dir.fcb.directory_block = d->dcb.fcb.block_in_disk;
+			new_dir.fcb.block_in_disk = free_index;
+			strncpy(new_dir.fcb.name, dirname, 128*sizeof(char));
+			new_dir.fcb.size_in_bytes = 0; //I assume dirs have no size
+			new_dir.fcb.size_in_blocks = 1; //Only this block is occupied TODO: check in above implementation
+			new_dir.fcb.is_dir = 1;
+			new_dir.num_entries = 0; //Dir is empty
+			for(i=0;i<DIR_BLOCK_OFFSET;i++){
+				new_dir.file_blocks[i] = 0xFFFFFFFF;
+			}
+			
+			//Now write it down!
+			if(DiskDriver_writeBlock(d->sfs->disk, &new_dir, free_index)!=0){
+				printf("Error writing new dir\n");
+				return -1;
+			}		
+			return 0;		
+		}
+		
+			
+		else{ //Creating a new DirectoryBlock and allocating it in free_index
+			DirectoryBlock dir_rem;
+			
+			free_index = DiskDriver_getFreeBlock(d->sfs->disk, 0);
+			if (free_index == -1) {
+				printf("No free space allocating new remainder block!\n");
+				return -1;
+			}
+			//Compiling remainder block
+			dir_rem.header.previous_block = pwd_pointer->fcb.block_in_disk;
+			dir_rem.header.next_block = 0xFFFFFFFF;
+			dir_rem.header.block_in_file = pwd_pointer->.header.block_in_file+1;
+			for(i=0;i<DIR_BLOCK_OFFSET;i++){
+				dir_rem.file_blocks[i] = 0xFFFFFFFF;
+			}
+			
+			//Writing remainder block down on the disk
+			if(DiskDriver_writeBlock(d->sfs->disk, &dir_rem, free_index)!=0){
+				printf("Error writing new dir\n");
+				return -1;
+			}
+			//Recursion!
+			return SimpleFS_mkDir(d, dirname);
+		}		
+	}
+}
+
+
+int SimpleFS_remove(SimpleFS* fs, int index){
+	
+	FirstDirectoryBlock block; //I need to read block to know what type it has
+	int parent_dir_index = block.fcb.directory_block; //Needed for fixing file_blocks array on dirs.
+	
+	DirectoryBlock* rem_ptr = (FileBlock*)&block; //For directory reminders
+	
+	if(DiskDriver_readBlock(fs->disk, &block, index)!=0){
+		printf("Error reading file/folder Block");
+		return -1;
+	}
+	if(temp_block.fcb.is_dir == 1){ //If we got a dir
+		
+		while(block.file_blocks[0]!=0xFFFFFFFF){ //Emptying the dir before eliminating
+			int res = SimpleFS_remove(fs, block.file_blocks[0]); 
+			//It works because I'm closing-up holes made by file/sub-dir elimination
+		}
+		else{ //The dir is empty
+			if(DiskDriver_freeBlock(fs->disk, index)!=0){
+				printf("Error eliminating empty dir!\n!");
+				return -1;
+			}
+		}	
+	}
+	else{ //If we got a file
+		FileBlock* file_block = (FileBlock*)&block;
+		
+		//Iteratively fetch block chain and delete them		
+		int this_block = index;
+		int next_block = file_block->header.next_block;
+		
+		//Eliminating block and fetching next iteratively
+		while(file_block->next_block != 0xFFFFFFFF){
+			
+			if(DiskDriver_freeBlock(fs->disk, this_block)!=0){
+				printf("Error freeing Block");
+				return -1;
+			}
+			
+			if(DiskDriver_readBlock(fs->disk, file_block ,next_block)!=0){
+				printf("Error reading next file Block");
+				return -1;
+			
+			this_block = next_block;	
+			next_block = file_block->header.next_block;			
+			}
+		}
+		//Eliminating last remaining block
+		if(DiskDriver_freeBlock(fs->disk, this_block)!=0){
+				printf("Error freeing Block");
+				return -1;
+		}
+		
+		
+	}
+	//Fill the hole in file_blocks array in parent_dir.
+	
+	//Fetching parent dir
+	if(DiskDriver_readBlock(fs->disk, &block, parent_dir)!=0){
+		printf("Error reading file/folder Block");
+		return -1;
+	}
+	
+	//Scanning file_blocks array searching for "index" match
+	
+	//Trying in the FirstDirectoryBlock
+	int i, found = 0, first_dir_block = 1;
+	for(i=0;i<F_DIR_BLOCK_OFFSET;i++){
+		if(block.file_blocks[i] == index){
+			found = 1;
+			break;
+		}
+	}
+	if(found == 0){
+		//Then trying in remainder DirectoryBlocks
+		
+		first_dir_block = 0;
+		while(rem_ptr->header.next_block!=0xFFFFFFFF){
+			for(i=0;i<DIR_BLOCK_OFFSET;i++){
+				if(block.file_blocks[i] == index){
+					found = 1;
+					break;
+				}
+			}
+		}
+	}
+	if(found == 0){
+		printf("Something terrible happened!\n");
+		return -1;
+	}
+	//Now move every next array cell back of 1 position
+	
+	DirectoryBlock aux_dir; //For taking last array index from next remainder
+	
+	if(first_dir_block == 1){
+		for(;i<F_DIR_BLOCK_OFFSET-1;i++){
+			block.file_blocks[i] = block.file_blocks[i+1];
+		}
+		//Take, if any, the last index form the next remainder
+		if(block.header.next_block!=0xFFFFFFFF){
+			
+			if(DiskDriver_readBlock(fs->disk, &aux_dir, block.header.next_block)!=0){
+				printf("Error scaling back indexes from a remainder");
+				return -1;
+			}
+			block.file_blocks[F_DIR_BLOCK_OFFSET] = aux_dir.file_blocks[0];
+			//Update parent dir
+			if(DiskDriver_writeBlock(fs->disk, &aux_dir, parent_dir)!=0){
+				printf("Error scaling back indexes from a remainder");
+				return -1;
+			}
+		}
+		else{ //If no remainder, fill with invalid value
+			block.file_blocks[F_DIR_BLOCK_OFFSET] = 0xFFFFFFFF;
+			
+			//If a remainder block is now empty, delete!
+			found = 0;
+			for(i=0;i<DIR_BLOCK_OFFSET;i++){
+				if(block.file_blocks[i]!=0xFFFFFFFF){
+					found = 1;
+					break;
+				}
+			}
+			if(found == 0){ //Eliminate it!
+				if(DiskDriver_freeBlock(fs->disk, block.next_block)!=0){
+					printf("Error deleting dir remainder block\n");
+					return -1;
+				}
+			}
+			
+			//Update parent dir
+			if(DiskDriver_writeBlock(fs->disk, &aux_dir, parent_dir)!=0){
+				printf("Error scaling back indexes from a remainder");
+				return -1;
+			}
+			return 0; //No further operation to do here. Hooray!
+		}
+		
+		//Now operate on remainders
+		
+		while(block.header.next_block!=0xFFFFFFFF){
+			this_block = block.header.next_block;
+			if(DiskDriver_readBlock(fs->disk, dir_rem, this_block)!=0){
+				printf("Error scaling back indexes from a remainder");
+				return -1;
+			}
+			for(i=0;i<DIR_BLOCK_OFFSET-1;i++){
+				dir_rem->file_blocks[i] = dir_rem->file_blocks[i+1];
+			}
+			dir_rem->file_blocks[i] = 0xFFFFFFFF; //In case there is no further remainder
+			
+			//Take, if any, the last index form the next remainder
+			if(dir_rem->header.next_block!=0xFFFFFFFF){			
+				if(DiskDriver_readBlock(fs->disk, &aux_dir, dir_rem->header.next_block)!=0){
+					printf("Error scaling back indexes from a remainder");
+					return -1;
+				}
+				dir_rem->file_blocks[DIR_BLOCK_OFFSET] = aux_dir.file_blocks[0];
+			}	
+			//Update parent remainder
+			if(DiskDriver_writeBlock(fs->disk, dir_rem, this_block)!=0){
+				printf("Error scaling back indexes from a remainder");
+				return -1;
+			}
+		}
+		//Last remainder
+		for(i=0;i<DIR_BLOCK_OFFSET-1;i++){
+			dir_rem->file_blocks[i] = dir_rem->file_blocks[i+1];
+		}
+		//Update parent remainder
+		if(DiskDriver_writeBlock(fs->disk, dir_rem, this_block)!=0){
+			printf("Error scaling back indexes from a remainder");
+			return -1;
+		}
+		
+		//If a remainder block is now empty, delete!
+		found = 0;
+		for(i=0;i<DIR_BLOCK_OFFSET;i++){
+			if(block.file_blocks[i]!=0xFFFFFFFF){
+				found = 1;
+				break;
+			}
+		}
+		if(found == 0){ //Eliminate it!
+			if(DiskDriver_freeBlock(fs->disk, block.next_block)!=0){
+				printf("Error deleting dir remainder block\n");
+				return -1;
+			}
+		}
+		
+		//Congrats, you survived this nightmere!
+		return 0;
+	}
+}
+
+
+int SimpleFS_checkFreeSpace(fs){
+	
+	int i=0,res=0;
+	while(i != -1){
+		i = DiskDriver_getFreeBlock(fs->disk, i+1);
+		if(i!=-1) res++;
+	}
+	printf("Number of free blocks = %d", res);
+	return res;
 }
