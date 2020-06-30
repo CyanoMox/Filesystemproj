@@ -61,7 +61,7 @@ int DiskDriver_getFreeBlock(DiskDriver* disk, unsigned int start);
 void DiskDriver_close(DiskDriver* disk);
 
 //Recovers DiskDriver struct, bitmap and disk mapping from a non-new disk
-int DiskDriver_resume(DiskDriver* disk);
+int DiskDriver_resume(DiskDriver* disk, int fd);
 
 //Upon request, this maps a page containing the block needed and retuns a pointer to it.
 char* DiskDriver_getBlock(DiskDriver* disk, unsigned int block_index);

@@ -1,17 +1,6 @@
 #pragma once
 #include "disk_driver.h"
 
-//These global constants are really useful to shorten code 
-const int F_FILE_BLOCK_OFFSET = BLOCK_SIZE-sizeof(FileControlBlock) 
-			- sizeof(BlockHeader);
-const int FILE_BLOCK_OFFSET = BLOCK_SIZE-sizeof(BlockHeader);
-const int F_DIR_BLOCK_OFFSET = (BLOCK_SIZE
-		   -sizeof(BlockHeader)
-		   -sizeof(FileControlBlock)
-		    -sizeof(int))/sizeof(int) ;
-const int DIR_BLOCK_OFFSET = (BLOCK_SIZE
-			-sizeof(BlockHeader))/sizeof(int);
-
 /*these are structures stored on disk*/
 
 // header, occupies the first portion of each block in the disk
@@ -42,13 +31,14 @@ typedef struct {
 typedef struct {
   BlockHeader header;
   FileControlBlock fcb;
-  char data[F_FILE_BLOCK_OFFSET];
+  char data[BLOCK_SIZE-sizeof(FileControlBlock) 
+			- sizeof(BlockHeader)];
 } FirstFileBlock;
 
 // this is one of the next physical blocks of a file
 typedef struct {
   BlockHeader header;
-  char  data[FILE_BLOCK_OFFSET];
+  char  data[BLOCK_SIZE-sizeof(BlockHeader)];
 } FileBlock;
 
 // this is the first physical block of a directory
@@ -56,13 +46,17 @@ typedef struct {
   BlockHeader header;
   FileControlBlock fcb;
   int num_entries;
-  int file_blocks[ (F_DIR_BLOCK_OFFSET];
+  int file_blocks[ ((BLOCK_SIZE
+		   -sizeof(BlockHeader)
+		   -sizeof(FileControlBlock)
+		    -sizeof(int))/sizeof(int))];
 } FirstDirectoryBlock;
 
 // this is remainder block of a directory
 typedef struct {
   BlockHeader header;
-  int file_blocks[ (DIR_BLOCK_OFFSET];
+  int file_blocks[ ((BLOCK_SIZE
+			-sizeof(BlockHeader))/sizeof(int))];
 } DirectoryBlock;
 /******************* stuff on disk END *******************/
 
@@ -119,6 +113,18 @@ typedef struct {
  * 3) Less code.
  * ***/
  
+ 
+//These global constants are really useful to shorten code 
+const int F_FILE_BLOCK_OFFSET = BLOCK_SIZE-sizeof(FileControlBlock) 
+			- sizeof(BlockHeader);
+const int FILE_BLOCK_OFFSET = BLOCK_SIZE-sizeof(BlockHeader);
+const int F_DIR_BLOCK_OFFSET = (BLOCK_SIZE
+		   -sizeof(BlockHeader)
+		   -sizeof(FileControlBlock)
+		    -sizeof(int))/sizeof(int) ;
+const int DIR_BLOCK_OFFSET = (BLOCK_SIZE
+			-sizeof(BlockHeader))/sizeof(int);
+			
 // initializes a file system on an already made disk
 // returns for side effect a handle to the top level directory 
 // stored in the first block. No return status is needed here
@@ -140,7 +146,7 @@ int SimpleFS_format(SimpleFS* fs, const char* diskname, int num_blocks);
 int SimpleFS_createFile(DirectoryHandle* d, const char* filename, FileHandle* dest_handle);
 
 // reads in the (preallocated) blocks array, the name of all files in a directory 
-int SimpleFS_readDir(char** names, DirectoryHandle* d);
+int SimpleFS_readDir(char* names, DirectoryHandle* d);
 
 // opens a file in the  directory d. The file should be exisiting
 int SimpleFS_openFile(DirectoryHandle* d, const char* filename, FileHandle* dest_handle);
@@ -258,7 +264,7 @@ int SimpleFS_createFile(DirectoryHandle* d, const char* filename, FileHandle* de
 	char names[pwd_dcb.num_entries][128]; //Allocating name matrix
 	//we have num_entries sub-vectors by 128 bytes
 	
-	if(SimpleFS_readDir(names, d)==-1){
+	if(SimpleFS_readDir((char*)names, d)==-1){ //TODO: verify problem of char*[128]
 		return -3;
 	}
 	
@@ -282,7 +288,7 @@ int SimpleFS_createFile(DirectoryHandle* d, const char* filename, FileHandle* de
 	ffb.header.previous_block = 0xFFFFFFFF; //First block
 	ffb.header.next_block = 0xFFFFFFFF; //Not allocated yet - last block
 	ffb.header.block_in_file = 0; //First block
-	ffb.fcb.directory_block = pwd_dcb.block_in_disk; //Parent dir
+	ffb.fcb.directory_block = pwd_dcb.fcb.block_in_disk; //Parent dir
 	ffb.fcb.block_in_disk = res;
 	strncpy(ffb.fcb.name, filename , 128*sizeof(char)); //Setting name
 	ffb.fcb.size_in_bytes = 0; //File is size 0
@@ -310,7 +316,7 @@ int SimpleFS_createFile(DirectoryHandle* d, const char* filename, FileHandle* de
 }
 
 
-int SimpleFS_readDir(char** names, DirectoryHandle* d){
+int SimpleFS_readDir(char* names, DirectoryHandle* d){
 	
 	
 	FirstDirectoryBlock pwd_dcb;
@@ -340,7 +346,7 @@ int SimpleFS_readDir(char** names, DirectoryHandle* d){
 				return -1;
 			}
 			
-			strncpy(names[j],temp_ffb.fcb.name,128*sizeof(char)); //I'm assuming char names[pwd_dcb.num_entries][128]
+			strncpy(names+j,temp_ffb.fcb.name,128*sizeof(char)); //I'm assuming char names[pwd_dcb.num_entries][128]
 			j++;
 		}
 	}
@@ -352,7 +358,7 @@ int SimpleFS_readDir(char** names, DirectoryHandle* d){
 			return -1;
 		}
 	//Read directory remainder
-		DirectoryBlock pwd_rem,
+		DirectoryBlock pwd_rem;
 		
 		res = DiskDriver_readBlock(d->sfs->disk, &pwd_rem, pwd_dcb.header.next_block);
 		if(res!=0) {
@@ -374,7 +380,7 @@ int SimpleFS_readDir(char** names, DirectoryHandle* d){
 					return -1;
 				}
 			
-				strncpy(names[j],temp_ffb.fcb.name,128*sizeof(char)); //I'm assuming char names[pwd_dcb.num_entries][128]
+				strncpy(names+j,temp_ffb.fcb.name,128*sizeof(char)); //I'm assuming char names[pwd_dcb.num_entries][128]
 				j++;
 			}
 			
@@ -394,7 +400,7 @@ int SimpleFS_readDir(char** names, DirectoryHandle* d){
 			}
 		}
 	}
-	while(remaining_files!=0)
+	while(remaining_files!=0);
 	
 	return 0;
 }
@@ -411,14 +417,15 @@ int SimpleFS_openFile(DirectoryHandle* d, const char* filename, FileHandle* dest
 	}
 	char names[pwd_dcb.num_entries][128]; //Allocating name matrix
 	//we have num_entries sub-vectors by 128 bytes
-	if(SimpleFS_readDir(names, d)==-1) return -1;
+	if(SimpleFS_readDir(names[0], d)==-1) return -1;
 	
 	
 	//now retrieving FirstFileBlock index
 	int array_num = -1; //This value will record the position in the array of the filename itself. From that, it's easy to retrieve the fileindex
 	
+	int i;
 	for(i=0;i<pwd_dcb.num_entries;i++){
-		if(strcmp(names[i],filename, 128*sizeof(char))==0) array_num = i;
+		if(strncmp(names[i],filename, 128*sizeof(char))==0) array_num = i;
 	}
 	//if no filename match
 	if(array_num==-1){
@@ -450,12 +457,12 @@ int SimpleFS_openFile(DirectoryHandle* d, const char* filename, FileHandle* dest
 	DirectoryBlock pwd_rem;
 		
 	//passing explicitly from FirstDirectoryBlock to DirectoryBlock
-	if(DiskDriver_readBlock(pwd_dcb.sfs->disk, &pwd_rem, pwd_dcb.header.next_block)!=0)
+	if(DiskDriver_readBlock(d->sfs->disk, &pwd_rem, pwd_dcb.header.next_block)!=0)
 		return -1;
 		
 	//getting right DirBlock trough iterations
 	for(i=0;i<rem_dir_num;i++){
-		if(DiskDriver_readBlock(pwd_rem.sfs->disk, &pwd_rem, pwd_rem.header.next_block)!=0) //TODO: check this out
+		if(DiskDriver_readBlock(d->sfs->disk, &pwd_rem, pwd_rem.header.next_block)!=0) //TODO: check this out
 			return -1;
 	}
 	
@@ -476,7 +483,7 @@ int SimpleFS_write(FileHandle* f, void* src_data, int size){
 	int written_size = 0; //For return purposes
 	//FirstFileBlock ffb;
 	FileBlock ffb; //I prefer to read FirstFileBlock as FileBlock for further iterations!
-	FirstFileBlock* ffb_pointer = &ffb; //For first time only
+	FirstFileBlock* ffb_pointer = (FirstFileBlock*)&ffb; //For first time only
 	int current_block = f->fcb;
 	
 	int res = DiskDriver_readBlock(f->sfs->disk, &ffb, current_block);
@@ -535,7 +542,7 @@ int SimpleFS_write(FileHandle* f, void* src_data, int size){
 			
 			//Initializing new FileBlock
 			for(i=0;i<BLOCK_SIZE;i++){
-				(char*)&fb[i] = 0;
+				fb.data[i] = 0;
 			}
 			//Creating new FileBlock in memory
 			fb.header.previous_block = current_block;
@@ -586,7 +593,7 @@ int SimpleFS_read(FileHandle* f, void* dst_data, int size){
 	//TODO: This implementation is cleaner and more elegant of the one above. Fix that.
 	
 	FileBlock ffb; //same as SimpleFS_write
-	FirstFileBlock* ffb_pointer = &ffb;
+	FirstFileBlock* ffb_pointer = (FirstFileBlock*)&ffb;
 	int read_bytes = 0;
 	
 	char* data_pointer = ffb_pointer->data; //For the FirstFileBlock
@@ -624,12 +631,12 @@ int SimpleFS_read(FileHandle* f, void* dst_data, int size){
 		}
 		//Reading it
 		if(rem_data<=FILE_BLOCK_OFFSET){
-			memcpy(dst_data[size-rem_data], fb.data, rem_data);
+			memcpy(dst_data+(size-rem_data), fb.data, rem_data);
 			read_bytes += rem_data;
 			return read_bytes;
 		}
 		else{
-			memcpy(dst_data[size-rem_data], fb.data, FILE_BLOCK_OFFSET);
+			memcpy(dst_data+(size-rem_data), fb.data, FILE_BLOCK_OFFSET);
 			read_bytes += FILE_BLOCK_OFFSET;
 			rem_data = size-read_bytes;
 		}
@@ -642,22 +649,28 @@ int SimpleFS_read(FileHandle* f, void* dst_data, int size){
 int SimpleFS_changeDir(DirectoryHandle* d, char* dirname){
 	
 	//Generating updir name for comparison
-	char[128] updir;
+	char updir[128];
 	strncpy(updir, "..", 128);
 	
 	FileHandle dest_handle;
 	if(strncmp(dirname, updir, 128)!=0){
 		
-		if(SimpleFS_openFile(d, dirname, dest_handle)!=0){
+		if(SimpleFS_openFile(d, dirname, &dest_handle)!=0){
 			return -1;
 		}
 		/*This works because header and fcb of FirstFileBlock 
 		 * and FirstDirBlock have same offsets, so simply get FileHandle
 		 * by openFile() and cast it into a DirectoryHandle*/
-		d = (DirectoryHandle*) dest_handle;	
+		d = (DirectoryHandle*) &dest_handle;	
 		
 		//TODO: need to check for a file with same name.
-		if(d->dcb.fcb.is_dir==0){
+		
+		FirstDirectoryBlock dir;
+		if(DiskDriver_readBlock(d->sfs->disk, &dir, d->dcb)!=0){
+			printf("Error reading dir/file\n");
+			return -1;
+		}
+		if(dir.fcb.is_dir==0){
 			printf("This is not a dir\n");
 			return -1;
 		}
@@ -717,8 +730,10 @@ int SimpleFS_mkDir(DirectoryHandle* d, char* dirname){
 	}
 	
 	int is_rem = 0; //If the dir has at least 1 remainder block, it gets true.
+	int present_block = 0xFFFFFFFF; //Useful in case of the creation of a remainder of the remainder
 	
 	while(pwd.header.next_block!=0xFFFFFFFF){
+		present_block = pwd.header.next_block;
 		//It works also on DirectoryBlock and FirstDirectoryBlock, because header offsets are the same
 		//It reaches the last block used by the dir
 		if(DiskDriver_readBlock(d->sfs->disk, &pwd, pwd.header.next_block)!=0){
@@ -734,7 +749,7 @@ int SimpleFS_mkDir(DirectoryHandle* d, char* dirname){
 	if(is_rem == 0){ //Block is a FirstDirectoryBlock		
 		
 		for(i=0;i<F_DIR_BLOCK_OFFSET;i++){
-			if(pwd.file_blocks[i] != 0xFFFFFFFF;) { //Picks the first empty pos in array
+			if(pwd.file_blocks[i] != 0xFFFFFFFF) { //Picks the first empty pos in array
 				is_full = 0;
 				break;
 			}
@@ -752,7 +767,7 @@ int SimpleFS_mkDir(DirectoryHandle* d, char* dirname){
 			new_dir.header.previous_block = 0xFFFFFFFF;
 			new_dir.header.next_block = 0xFFFFFFFF;
 			new_dir.header.block_in_file = 0;
-			new_dir.fcb.directory_block = d->dcb.fcb->block_in_disk;
+			new_dir.fcb.directory_block = d->parent_dir;
 			new_dir.fcb.block_in_disk = free_index;
 			strncpy(new_dir.fcb.name, dirname, 128*sizeof(char));
 			new_dir.fcb.size_in_bytes = 0; //I assume dirs have no size
@@ -801,7 +816,7 @@ int SimpleFS_mkDir(DirectoryHandle* d, char* dirname){
 	else{ //Block is a DirectoryBlock use pwd_pointer instead of pwd itself.
 		
 		for(i=0;i<DIR_BLOCK_OFFSET;i++){
-			if(pwd_pointer->file_blocks[i] != 0xFFFFFFFF;) { //Picks the first empty pos in array
+			if(pwd_pointer->file_blocks[i] != 0xFFFFFFFF) { //Picks the first empty pos in array
 				is_full = 0;
 				break;
 			}
@@ -815,10 +830,10 @@ int SimpleFS_mkDir(DirectoryHandle* d, char* dirname){
 			pwd_pointer->file_blocks[i] = free_index; //Folder was allocated on array
 		
 			//Compiling new dir block
-			new_dir.header.previous_block = 0xFFFFFFFF;
+			new_dir.header.previous_block = 0xFFFFFFFF; 
 			new_dir.header.next_block = 0xFFFFFFFF;
 			new_dir.header.block_in_file = 0;
-			new_dir.fcb.directory_block = d->dcb.fcb.block_in_disk;
+			new_dir.fcb.directory_block = d->parent_dir;
 			new_dir.fcb.block_in_disk = free_index;
 			strncpy(new_dir.fcb.name, dirname, 128*sizeof(char));
 			new_dir.fcb.size_in_bytes = 0; //I assume dirs have no size
@@ -838,7 +853,7 @@ int SimpleFS_mkDir(DirectoryHandle* d, char* dirname){
 		}
 		
 			
-		else{ //Creating a new DirectoryBlock and allocating it in free_index
+		else{ //Creating a next DirectoryBlock and allocating it in free_index
 			DirectoryBlock dir_rem;
 			
 			free_index = DiskDriver_getFreeBlock(d->sfs->disk, 0);
@@ -847,9 +862,9 @@ int SimpleFS_mkDir(DirectoryHandle* d, char* dirname){
 				return -1;
 			}
 			//Compiling remainder block
-			dir_rem.header.previous_block = pwd_pointer->fcb.block_in_disk;
+			dir_rem.header.previous_block = present_block;
 			dir_rem.header.next_block = 0xFFFFFFFF;
-			dir_rem.header.block_in_file = pwd_pointer->.header.block_in_file+1;
+			dir_rem.header.block_in_file = pwd_pointer->header.block_in_file+1;
 			for(i=0;i<DIR_BLOCK_OFFSET;i++){
 				dir_rem.file_blocks[i] = 0xFFFFFFFF;
 			}
@@ -871,23 +886,25 @@ int SimpleFS_remove(SimpleFS* fs, int index){
 	FirstDirectoryBlock block; //I need to read block to know what type it has
 	int parent_dir_index = block.fcb.directory_block; //Needed for fixing file_blocks array on dirs.
 	
-	DirectoryBlock* rem_ptr = (FileBlock*)&block; //For directory reminders
+	DirectoryBlock* rem_ptr = (DirectoryBlock*)&block; //For directory reminders
 	
 	if(DiskDriver_readBlock(fs->disk, &block, index)!=0){
 		printf("Error reading file/folder Block");
 		return -1;
 	}
-	if(temp_block.fcb.is_dir == 1){ //If we got a dir
+	if(block.fcb.is_dir == 1){ //If we got a dir
 		
 		while(block.file_blocks[0]!=0xFFFFFFFF){ //Emptying the dir before eliminating
-			int res = SimpleFS_remove(fs, block.file_blocks[0]); 
+			if(SimpleFS_remove(fs, block.file_blocks[0])!=0){
+				printf("Error emptying dir\n");
+				return -1;
+			} 
 			//It works because I'm closing-up holes made by file/sub-dir elimination
 		}
-		else{ //The dir is empty
-			if(DiskDriver_freeBlock(fs->disk, index)!=0){
-				printf("Error eliminating empty dir!\n!");
-				return -1;
-			}
+		//Now dir is empty
+		if(DiskDriver_freeBlock(fs->disk, index)!=0){
+			printf("Error eliminating empty dir!\n!");
+			return -1;	
 		}	
 	}
 	else{ //If we got a file
@@ -898,7 +915,7 @@ int SimpleFS_remove(SimpleFS* fs, int index){
 		int next_block = file_block->header.next_block;
 		
 		//Eliminating block and fetching next iteratively
-		while(file_block->next_block != 0xFFFFFFFF){
+		while(file_block->header.next_block != 0xFFFFFFFF){
 			
 			if(DiskDriver_freeBlock(fs->disk, this_block)!=0){
 				printf("Error freeing Block");
@@ -921,10 +938,10 @@ int SimpleFS_remove(SimpleFS* fs, int index){
 		
 		
 	}
-	//Fill the hole in file_blocks array in parent_dir.
+	//Filling the hole in file_blocks array in parent_dir.
 	
 	//Fetching parent dir
-	if(DiskDriver_readBlock(fs->disk, &block, parent_dir)!=0){
+	if(DiskDriver_readBlock(fs->disk, &block, parent_dir_index)!=0){
 		printf("Error reading file/folder Block");
 		return -1;
 	}
@@ -973,7 +990,7 @@ int SimpleFS_remove(SimpleFS* fs, int index){
 			}
 			block.file_blocks[F_DIR_BLOCK_OFFSET] = aux_dir.file_blocks[0];
 			//Update parent dir
-			if(DiskDriver_writeBlock(fs->disk, &aux_dir, parent_dir)!=0){
+			if(DiskDriver_writeBlock(fs->disk, &aux_dir, parent_dir_index)!=0){
 				printf("Error scaling back indexes from a remainder");
 				return -1;
 			}
@@ -990,14 +1007,14 @@ int SimpleFS_remove(SimpleFS* fs, int index){
 				}
 			}
 			if(found == 0){ //Eliminate it!
-				if(DiskDriver_freeBlock(fs->disk, block.next_block)!=0){
+				if(DiskDriver_freeBlock(fs->disk, block.header.next_block)!=0){
 					printf("Error deleting dir remainder block\n");
 					return -1;
 				}
 			}
 			
 			//Update parent dir
-			if(DiskDriver_writeBlock(fs->disk, &aux_dir, parent_dir)!=0){
+			if(DiskDriver_writeBlock(fs->disk, &aux_dir, parent_dir_index)!=0){
 				printf("Error scaling back indexes from a remainder");
 				return -1;
 			}
@@ -1005,38 +1022,40 @@ int SimpleFS_remove(SimpleFS* fs, int index){
 		}
 		
 		//Now operate on remainders
+		int this_block;
+		DirectoryBlock dir_rem;
 		
 		while(block.header.next_block!=0xFFFFFFFF){
 			this_block = block.header.next_block;
-			if(DiskDriver_readBlock(fs->disk, dir_rem, this_block)!=0){
+			if(DiskDriver_readBlock(fs->disk, &dir_rem, this_block)!=0){
 				printf("Error scaling back indexes from a remainder");
 				return -1;
 			}
 			for(i=0;i<DIR_BLOCK_OFFSET-1;i++){
-				dir_rem->file_blocks[i] = dir_rem->file_blocks[i+1];
+				dir_rem.file_blocks[i] = dir_rem.file_blocks[i+1];
 			}
-			dir_rem->file_blocks[i] = 0xFFFFFFFF; //In case there is no further remainder
+			dir_rem.file_blocks[i] = 0xFFFFFFFF; //In case there is no further remainder
 			
 			//Take, if any, the last index form the next remainder
-			if(dir_rem->header.next_block!=0xFFFFFFFF){			
-				if(DiskDriver_readBlock(fs->disk, &aux_dir, dir_rem->header.next_block)!=0){
+			if(dir_rem.header.next_block!=0xFFFFFFFF){			
+				if(DiskDriver_readBlock(fs->disk, &aux_dir, dir_rem.header.next_block)!=0){
 					printf("Error scaling back indexes from a remainder");
 					return -1;
 				}
-				dir_rem->file_blocks[DIR_BLOCK_OFFSET] = aux_dir.file_blocks[0];
+				dir_rem.file_blocks[DIR_BLOCK_OFFSET] = aux_dir.file_blocks[0];
 			}	
 			//Update parent remainder
-			if(DiskDriver_writeBlock(fs->disk, dir_rem, this_block)!=0){
+			if(DiskDriver_writeBlock(fs->disk, &dir_rem, this_block)!=0){
 				printf("Error scaling back indexes from a remainder");
 				return -1;
 			}
 		}
 		//Last remainder
 		for(i=0;i<DIR_BLOCK_OFFSET-1;i++){
-			dir_rem->file_blocks[i] = dir_rem->file_blocks[i+1];
+			dir_rem.file_blocks[i] = dir_rem.file_blocks[i+1];
 		}
 		//Update parent remainder
-		if(DiskDriver_writeBlock(fs->disk, dir_rem, this_block)!=0){
+		if(DiskDriver_writeBlock(fs->disk, &dir_rem, this_block)!=0){
 			printf("Error scaling back indexes from a remainder");
 			return -1;
 		}
@@ -1050,19 +1069,19 @@ int SimpleFS_remove(SimpleFS* fs, int index){
 			}
 		}
 		if(found == 0){ //Eliminate it!
-			if(DiskDriver_freeBlock(fs->disk, block.next_block)!=0){
+			if(DiskDriver_freeBlock(fs->disk, block.header.next_block)!=0){
 				printf("Error deleting dir remainder block\n");
 				return -1;
 			}
 		}
-		
-		//Congrats, you survived this nightmere!
-		return 0;
 	}
+	
+	//Congrats, you survived this nightmere!
+		return 0;
 }
 
 
-int SimpleFS_checkFreeSpace(fs){
+int SimpleFS_checkFreeSpace(SimpleFS* fs){
 	
 	int i=0,res=0;
 	while(i != -1){
