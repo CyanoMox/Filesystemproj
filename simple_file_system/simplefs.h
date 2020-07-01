@@ -78,7 +78,7 @@ typedef struct {
 typedef struct {
   DiskDriver* disk;
   // add more fields if needed
-  int current_directory_block;	  // index of the dir block currently accessed
+  unsigned int current_directory_block;	  // index of the dir block currently accessed
 } SimpleFS;
 
 // this is a file handle, used to refer to open files
@@ -93,7 +93,7 @@ typedef struct {
 typedef struct {
   SimpleFS* sfs;                 // pointer to memory file system structure
   unsigned int dcb;       		 // index of the first block of the directory(read it)
-  unsigned int parent_dir;  		 // index of the parent directory (null if top level)
+  unsigned int parent_dir; 		 // index of the parent directory (null if top level)
   unsigned int current_block;    // current block in the directory
   unsigned int pos_in_dir;       // absolute position of the cursor in the directory
   unsigned int pos_in_block;     // relative position of the cursor in the block
@@ -128,7 +128,7 @@ const int DIR_BLOCK_OFFSET = (BLOCK_SIZE
 // initializes a file system on an already made disk
 // returns for side effect a handle to the top level directory 
 // stored in the first block. No return status is needed here
-void SimpleFS_init(SimpleFS* fs, DiskDriver* disk, DirectoryHandle* dest_handle);
+void SimpleFS_init(SimpleFS* fs, DirectoryHandle* dest_handle);
 
 // creates the inital structures, the top level directory
 // has name "/" and its control block is in the first position
@@ -141,7 +141,7 @@ int SimpleFS_format(SimpleFS* fs, const char* diskname, int num_blocks);
 // returns -1 on error (file existing)
 // returns -2 on error (no free blocks)
 // returns -3 on error (generic reading or writing error)
-// returns for side effect the FileHandle, if no error
+// if no error, returns FileHandle by side effect
 // an empty file consists only of a block of type FirstBlock
 int SimpleFS_createFile(DirectoryHandle* d, const char* filename, FileHandle* dest_handle);
 
@@ -194,7 +194,7 @@ int SimpleFS_checkFreeSpace(SimpleFS* fs);
 
 
 /*** Function implementation ***/
-void SimpleFS_init(SimpleFS* fs, DiskDriver* disk, DirectoryHandle* dest_handle){
+void SimpleFS_init(SimpleFS* fs, DirectoryHandle* dest_handle){
 	
 	dest_handle->sfs = fs;
 	dest_handle->dcb = 0;
@@ -214,6 +214,7 @@ int SimpleFS_format(SimpleFS* fs, const char* diskname, int num_blocks){
 		printf("Error in formatting!\n");
 		return -1;
 	}
+	
 	fs->current_directory_block = 0; //set on top dir
 	
 	BlockHeader top_header;
@@ -255,6 +256,8 @@ int SimpleFS_createFile(DirectoryHandle* d, const char* filename, FileHandle* de
 	
 	FirstDirectoryBlock pwd_dcb;
 	
+	int free_block;
+	
 	int res = DiskDriver_readBlock(d->sfs->disk, &pwd_dcb, d->dcb);
 	if(res!=0) {
 		printf("Error reading first dir block\n");
@@ -277,11 +280,12 @@ int SimpleFS_createFile(DirectoryHandle* d, const char* filename, FileHandle* de
 		}
 	}
 	
-	res = DiskDriver_getFreeBlock(d->sfs->disk, 0); //retrieving first free block available
+	free_block = DiskDriver_getFreeBlock(d->sfs->disk, 0); //retrieving first free block available
 	if(res==-1) {
 		printf("No free block available!\n");
 		return -2;
 	}
+	printf("File Index will be: %d", res);
 	
 	//Creating FirstFileBlock
 	FirstFileBlock ffb;
@@ -289,7 +293,7 @@ int SimpleFS_createFile(DirectoryHandle* d, const char* filename, FileHandle* de
 	ffb.header.next_block = 0xFFFFFFFF; //Not allocated yet - last block
 	ffb.header.block_in_file = 0; //First block
 	ffb.fcb.directory_block = pwd_dcb.fcb.block_in_disk; //Parent dir
-	ffb.fcb.block_in_disk = res;
+	ffb.fcb.block_in_disk = free_block;
 	strncpy(ffb.fcb.name, filename , 128*sizeof(char)); //Setting name
 	ffb.fcb.size_in_bytes = 0; //File is size 0
 	ffb.fcb.size_in_blocks = 1; //Only first block
@@ -297,10 +301,90 @@ int SimpleFS_createFile(DirectoryHandle* d, const char* filename, FileHandle* de
 	
 	for(i=0;i<F_FILE_BLOCK_OFFSET;i++){
 		ffb.data[i] = 0; //Initializing data field
+	}	
+	
+	//Update parent dir status
+	i = 0;
+	int is_full = 1;
+	while(i<F_DIR_BLOCK_OFFSET){
+		if(pwd_dcb.file_blocks[i]==0xFFFFFFFF){			
+			is_full = 0;
+			break;
+		}
+	} 
+	pwd_dcb.file_blocks[i] = free_block;
+	printf("\nDBG2: %d", pwd_dcb.file_blocks[i]);
+	
+	if(DiskDriver_writeBlock(d->sfs->disk, &pwd_dcb, d->dcb)!=0){
+		printf("Cannot update parent dir status\n");
+		return -1;
 	}
 	
-	//Writing FirstFileBlock down at res position
-	res = DiskDriver_writeBlock(d->sfs->disk, &ffb, res);
+	//If Directory has remainders
+	if(is_full==1){	
+		DirectoryBlock pwd_rem;
+		int rem_index = pwd_dcb.header.next_block;
+		int rem_free_block;
+	
+		//Fetching first remainder 
+		res = DiskDriver_readBlock(d->sfs->disk, &pwd_rem, rem_index);
+		if(res!=0){
+			printf("Error reading directory remainder\n");
+			return -1;
+		}
+		while (pwd_rem.header.next_block!=0xFFFFFFFF){
+			//Proceed to next remainder. This works because I'm assuming
+			//	no holes are present in directory allocation vector
+			rem_index = pwd_dcb.header.next_block;
+			DiskDriver_readBlock(d->sfs->disk, &pwd_rem, rem_index);
+		}
+		i = 0;
+		while(i<DIR_BLOCK_OFFSET){
+			if(pwd_rem.file_blocks[i]==0xFFFFFFFF){			
+				is_full = 0;
+				break;
+			}
+		} 
+		pwd_dcb.file_blocks[i] = rem_free_block;
+		printf("\nDBG3: %d", pwd_rem.file_blocks[i]);
+		
+		//If no remainder is not full
+		//Allocating a new dir remainder
+		if(is_full==1){
+			rem_free_block = DiskDriver_getFreeBlock(d->sfs->disk, 0);
+			if(rem_free_block == -1){
+				printf("No more free blocks to allocate directory remainder\n");
+				return -2;
+			}
+			pwd_dcb.header.next_block = rem_free_block;
+			
+			//Updating rem dir chain
+			if(DiskDriver_writeBlock(d->sfs->disk, &pwd_rem, rem_index)!=0){
+				printf("Error updating previous remainder block\n");
+				return -1;
+			}
+			
+			DirectoryBlock new_rem;
+			
+			new_rem.header.previous_block = rem_index;
+			new_rem.header.next_block = 0xFFFFFFFF;
+			new_rem.header.block_in_file = pwd_rem.header.block_in_file+1;
+			
+			for(i=1;i<DIR_BLOCK_OFFSET;i++){
+				new_rem.file_blocks[i] = 0xFFFFFFFF;
+			}
+			new_rem.file_blocks[0] = free_block; //Finallt I'm allocating file index!
+			
+			//Writing down new dir rem
+			if(DiskDriver_writeBlock(d->sfs->disk, &new_rem, rem_free_block)!=0){
+				printf("Error updating previous remainder block\n");
+				return -1;
+			}			
+		}
+	}
+	
+	//Writing FirstFileBlock down at free_block position
+	res = DiskDriver_writeBlock(d->sfs->disk, &ffb, free_block);
 	if(res!=0){
 		printf("Error writing down block");
 	}
