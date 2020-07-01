@@ -61,7 +61,7 @@ int DiskDriver_getFreeBlock(DiskDriver* disk, unsigned int start);
 void DiskDriver_close(DiskDriver* disk);
 
 //Recovers DiskDriver struct, bitmap and disk mapping from a non-new disk
-int DiskDriver_resume(DiskDriver* disk, int fd);
+int DiskDriver_resume(DiskDriver* disk, const char* filename);
 
 //Upon request, this maps a page containing the block needed and retuns a pointer to it.
 char* DiskDriver_getBlock(DiskDriver* disk, unsigned int block_index);
@@ -254,9 +254,17 @@ void DiskDriver_close(DiskDriver* disk){
 }
 
 
-int DiskDriver_resume(DiskDriver* disk, int fd){
+int DiskDriver_resume(DiskDriver* disk, const char* filename){
 	
 	int num_blocks;
+	int fd;
+	
+	fd = open(filename, O_RDWR);
+	if(fd == -1){
+		printf("Error opening file! \n");
+		return -1;
+		
+	}
 	disk->fd = fd;
 	
 	//Retrieving bitmap lenght!
