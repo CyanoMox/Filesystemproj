@@ -231,7 +231,7 @@ int SimpleFS_format(SimpleFS* fs, const char* diskname, int num_blocks){
 	top_fcb.block_in_disk = 0; //Fixed index for this implementation
 	strncpy(top_fcb.name, "/", 128*sizeof(char));
 	top_fcb.size_in_bytes = 0; //I assume that a dir has no size
-	top_fcb.size_in_blocks = 0; //Will be updated if remainder blocks are added
+	top_fcb.size_in_blocks = 1; //Will be updated if remainder blocks are added
 	top_fcb.is_dir = 1;
 	
 	//Building FirstDirectoryBlock
@@ -253,26 +253,23 @@ int SimpleFS_format(SimpleFS* fs, const char* diskname, int num_blocks){
 
 
 int SimpleFS_createFile(DirectoryHandle* d, const char* filename, FileHandle* dest_handle){
+	int i, remainder_index, is_full, file_index, prev_remainder;
 	
+	//Fetching first dir block
 	FirstDirectoryBlock pwd_dcb;
-	
-	int free_block;
-	
-	int res = DiskDriver_readBlock(d->sfs->disk, &pwd_dcb, d->dcb);
-	if(res!=0) {
+	if(DiskDriver_readBlock(d->sfs->disk, &pwd_dcb, d->dcb)!=0) {
 		printf("Error reading first dir block\n");
 		return -3;
-	}	
-
+	}
+	
+	//Checking for same filename
 	char names[pwd_dcb.num_entries][128]; //Allocating name matrix
 	//we have num_entries sub-vectors by 128 bytes
 	
 	if(SimpleFS_readDir((char*)names, d)==-1){ //TODO: verify problem of char*[128]
 		return -3;
 	}
-	
-	//Checking for same filename
-	int i;
+		
 	for(i=0;i<pwd_dcb.num_entries;i++){
 		if(strncmp(filename, names[i], 128*sizeof(char))==0){
 			printf("Filename already exists!\n");
@@ -280,12 +277,154 @@ int SimpleFS_createFile(DirectoryHandle* d, const char* filename, FileHandle* de
 		}
 	}
 	
-	free_block = DiskDriver_getFreeBlock(d->sfs->disk, 0); //retrieving first free block available
-	if(res==-1) {
-		printf("No free block available!\n");
+	//Reserving index for file
+	file_index = DiskDriver_getFreeBlock(d->sfs->disk, 0);
+	if(file_index<0){
+		printf("No free space available!\n");
 		return -2;
 	}
-	printf("File Index will be: %d", res);
+	
+	//Temporary block occupation. This will be freed upon real file write
+	if(DiskDriver_writeBlock(d->sfs->disk, &pwd_dcb, file_index)!=0) {
+		printf("Error reserving file block\n");
+		return -3;
+	}
+	
+	//Checking for remainders
+	//First remainder
+	remainder_index = pwd_dcb.header.next_block;
+	printf("DBG REM INDEX = %d\n", remainder_index);
+	
+	if(remainder_index!=0xFFFFFFFF){ //we have a remainder
+		//For the first remainder, fetching has to be done manually
+		DirectoryBlock pwd_rem;
+		if(DiskDriver_readBlock(d->sfs->disk, &pwd_rem, remainder_index)!=0){
+			printf("Error reading first dir block\n");
+			return -3;
+		}
+		prev_remainder = remainder_index;
+		remainder_index = pwd_rem.header.next_block;
+		
+		//For further remainders, fetching is done automatically
+		while(remainder_index!=0xFFFFFFFF){
+			if(DiskDriver_readBlock(d->sfs->disk, &pwd_rem, remainder_index)!=0){
+				printf("Error reading first dir block\n");
+				return -3;
+			}
+			prev_remainder = remainder_index;
+			remainder_index = pwd_rem.header.next_block;
+		}
+		is_full = 1;
+		//Checking if remainder is full
+		for(i=0;i<DIR_BLOCK_OFFSET;i++){
+			if(pwd_rem.file_blocks[i]==0xFFFFFFFF){
+				is_full = 0;
+				break;
+			}
+			//printf("DBG break\n");
+		}
+		if(is_full == 0){ //I can allocate file directly
+			pwd_rem.file_blocks[i] = file_index;
+			printf("DBG IS NOT FULL\n");
+			
+			//Updating dir rem
+			printf("DBG prev remainder %d\n", prev_remainder);
+			if(DiskDriver_writeBlock(d->sfs->disk, &pwd_rem ,prev_remainder)!=0){
+				printf("Can't update last dir rem\n");
+				return -3;
+			}
+		}
+		else{ //I have to allocate a new rem dir block
+			printf("DBG IS FULL\n");
+			DirectoryBlock new_rem;
+			
+			new_rem.header.previous_block = prev_remainder;
+			new_rem.header.next_block = 0xFFFFFFFF;
+			new_rem.header.block_in_file = pwd_rem.header.block_in_file+1;
+			new_rem.file_blocks[0] = file_index;
+			
+			for(i=1;i<DIR_BLOCK_OFFSET;i++){ //Initializing file array
+				new_rem.file_blocks[i] = 0xFFFFFFFF;
+			}
+			
+			//Writing down this rem dir block
+			remainder_index = DiskDriver_getFreeBlock(d->sfs->disk, 0);
+			if(remainder_index<0){
+				printf ("No free block for dir rem\n");
+				return -2;
+			}
+			
+			if(DiskDriver_writeBlock(d->sfs->disk, &new_rem ,remainder_index)!=0){
+				printf("Can't write new dir rem\n");
+				return -3;
+			}
+			
+			//Updating dir rem
+			pwd_rem.header.next_block = remainder_index;
+			if(DiskDriver_writeBlock(d->sfs->disk, &pwd_rem ,prev_remainder)!=0){
+				printf("Can't update last dir rem\n");
+				return -3;
+			}
+			
+			pwd_dcb.header.next_block = remainder_index;
+			pwd_dcb.fcb.size_in_blocks++; //Will be updated with dcb later
+		}
+	}
+	else{ //If we don't have remainders...
+				
+		is_full = 1;
+		//Checking if dcb is full
+		for(i=0;i<F_DIR_BLOCK_OFFSET;i++){
+			if(pwd_dcb.file_blocks[i]==0xFFFFFFFF){
+				is_full = 0;
+				break;
+			}
+		}
+		if(is_full == 0){ //I can allocate directly
+			
+			pwd_dcb.file_blocks[i] = file_index;
+			
+			//Updating dir dcb
+			if(DiskDriver_writeBlock(d->sfs->disk, &pwd_dcb ,d->dcb)!=0){
+				printf("Can't update dcb\n");
+				return -3;
+			}
+		}
+		else{ //I have to allocate a new rem dir block
+			printf("DBG! FIRST REM\n");
+			DirectoryBlock new_rem;
+				
+			new_rem.header.previous_block = d->dcb;
+			new_rem.header.next_block = 0xFFFFFFFF;
+			new_rem.header.block_in_file = 1;
+			new_rem.file_blocks[0] = file_index;
+				
+			for(i=1;i<DIR_BLOCK_OFFSET;i++){ //Initializing file array
+				new_rem.file_blocks[i] = 0xFFFFFFFF;
+			}
+				
+			//Writing down this rem dir block
+			remainder_index = DiskDriver_getFreeBlock(d->sfs->disk, 0);
+			if(remainder_index<0){
+				printf ("No free block for dir rem\n");
+				return -2;
+			}
+				
+			if(DiskDriver_writeBlock(d->sfs->disk, &new_rem ,remainder_index)!=0){
+				printf("Can't write new dir rem\n");
+				return -3;
+			}
+			
+			pwd_dcb.fcb.size_in_blocks++;
+			pwd_dcb.header.next_block = remainder_index; //will be written in dcb update				
+		}
+	}
+	//Updating dcb
+	pwd_dcb.num_entries++;
+	if(DiskDriver_writeBlock(d->sfs->disk, &pwd_dcb, d->dcb)!=0){
+		printf("Error updating dir\n");
+		return -1;
+	}
 	
 	//Creating FirstFileBlock
 	FirstFileBlock ffb;
@@ -293,100 +432,25 @@ int SimpleFS_createFile(DirectoryHandle* d, const char* filename, FileHandle* de
 	ffb.header.next_block = 0xFFFFFFFF; //Not allocated yet - last block
 	ffb.header.block_in_file = 0; //First block
 	ffb.fcb.directory_block = pwd_dcb.fcb.block_in_disk; //Parent dir
-	ffb.fcb.block_in_disk = free_block;
+	ffb.fcb.block_in_disk = file_index;
 	strncpy(ffb.fcb.name, filename , 128*sizeof(char)); //Setting name
-	ffb.fcb.size_in_bytes = 0; //File is size 0
+	ffb.fcb.size_in_bytes = 0; //File is size TODO: in write, update this value
 	ffb.fcb.size_in_blocks = 1; //Only first block
 	ffb.fcb.is_dir = 0; //No, it's a file.
 	
 	for(i=0;i<F_FILE_BLOCK_OFFSET;i++){
 		ffb.data[i] = 0; //Initializing data field
-	}	
-	
-	//Update parent dir status
-	i = 0;
-	int is_full = 1;
-	while(i<F_DIR_BLOCK_OFFSET){
-		if(pwd_dcb.file_blocks[i]==0xFFFFFFFF){			
-			is_full = 0;
-			break;
-		}
-	} 
-	pwd_dcb.file_blocks[i] = free_block;
-	printf("\nDBG2: %d", pwd_dcb.file_blocks[i]);
-	
-	if(DiskDriver_writeBlock(d->sfs->disk, &pwd_dcb, d->dcb)!=0){
-		printf("Cannot update parent dir status\n");
-		return -1;
 	}
 	
-	//If Directory has remainders
-	if(is_full==1){	
-		DirectoryBlock pwd_rem;
-		int rem_index = pwd_dcb.header.next_block;
-		int rem_free_block;
-	
-		//Fetching first remainder 
-		res = DiskDriver_readBlock(d->sfs->disk, &pwd_rem, rem_index);
-		if(res!=0){
-			printf("Error reading directory remainder\n");
-			return -1;
-		}
-		while (pwd_rem.header.next_block!=0xFFFFFFFF){
-			//Proceed to next remainder. This works because I'm assuming
-			//	no holes are present in directory allocation vector
-			rem_index = pwd_dcb.header.next_block;
-			DiskDriver_readBlock(d->sfs->disk, &pwd_rem, rem_index);
-		}
-		i = 0;
-		while(i<DIR_BLOCK_OFFSET){
-			if(pwd_rem.file_blocks[i]==0xFFFFFFFF){			
-				is_full = 0;
-				break;
-			}
-		} 
-		pwd_dcb.file_blocks[i] = rem_free_block;
-		printf("\nDBG3: %d", pwd_rem.file_blocks[i]);
-		
-		//If no remainder is not full
-		//Allocating a new dir remainder
-		if(is_full==1){
-			rem_free_block = DiskDriver_getFreeBlock(d->sfs->disk, 0);
-			if(rem_free_block == -1){
-				printf("No more free blocks to allocate directory remainder\n");
-				return -2;
-			}
-			pwd_dcb.header.next_block = rem_free_block;
-			
-			//Updating rem dir chain
-			if(DiskDriver_writeBlock(d->sfs->disk, &pwd_rem, rem_index)!=0){
-				printf("Error updating previous remainder block\n");
-				return -1;
-			}
-			
-			DirectoryBlock new_rem;
-			
-			new_rem.header.previous_block = rem_index;
-			new_rem.header.next_block = 0xFFFFFFFF;
-			new_rem.header.block_in_file = pwd_rem.header.block_in_file+1;
-			
-			for(i=1;i<DIR_BLOCK_OFFSET;i++){
-				new_rem.file_blocks[i] = 0xFFFFFFFF;
-			}
-			new_rem.file_blocks[0] = free_block; //Finallt I'm allocating file index!
-			
-			//Writing down new dir rem
-			if(DiskDriver_writeBlock(d->sfs->disk, &new_rem, rem_free_block)!=0){
-				printf("Error updating previous remainder block\n");
-				return -1;
-			}			
-		}
+	//Freeing file_index block and writing down file
+	if(DiskDriver_freeBlock(d->sfs->disk, file_index)!=0){
+		printf("Error freeing file block\n");
+		return -3;
 	}
 	
-	//Writing FirstFileBlock down at free_block position
-	res = DiskDriver_writeBlock(d->sfs->disk, &ffb, free_block);
-	if(res!=0){
-		printf("Error writing down block");
+	if(DiskDriver_writeBlock(d->sfs->disk, &ffb, file_index)!=0){
+		printf("Error writing down block\n");
+		return -3;
 	}
 	
 	//Creating FileHandle
@@ -398,8 +462,6 @@ int SimpleFS_createFile(DirectoryHandle* d, const char* filename, FileHandle* de
 	
 	return 0;
 }
-
-
 int SimpleFS_readDir(char* names, DirectoryHandle* d){
 	
 	
@@ -410,35 +472,32 @@ int SimpleFS_readDir(char* names, DirectoryHandle* d){
 		printf("Error reading first dir block\n");
 		return -1;
 	}
-	
-	//BlockHeader* pwd_header = (BlockHeader*)&pwd_dcb.header;
-	//FileControlBlock* pwd_fcb = (FileControlBlock*)&pwd_dcb.fcb;
-	
+
 	//Exploring dir
 	int i, j=0 , remaining_files = pwd_dcb.num_entries;
 	FirstFileBlock temp_ffb;
 	
-	for(i=0;i<F_DIR_BLOCK_OFFSET;i++){
-		if(pwd_dcb.file_blocks[i]!=0xFFFFFFFF){ //if index is valid
-			
-			remaining_files--;
-			
-			//Reading ffb of every file to obtain name from fcb
-			res = DiskDriver_readBlock(d->sfs->disk, &temp_ffb, pwd_dcb.file_blocks[i]);
-			if(res!=0) {
-				printf("Error reading file block\n");
-				return -1;
-			}
-			
-			strncpy(names+j,temp_ffb.fcb.name,128*sizeof(char)); //I'm assuming char names[pwd_dcb.num_entries][128]
-			j++;
+	for(i=0;i<F_DIR_BLOCK_OFFSET;i++){		
+		if (remaining_files==0) break;
+		
+		//Reading ffb of every file to obtain name from fcb
+		res = DiskDriver_readBlock(d->sfs->disk, &temp_ffb, pwd_dcb.file_blocks[i]);
+		if(res!=0) {
+			printf("Error reading file block\n");
+			return -1;
 		}
+		
+		strncpy(names+j,temp_ffb.fcb.name,128*sizeof(char)); //I'm assuming char names[pwd_dcb.num_entries][128]
+		j++;
+		
+		remaining_files--;
+		
 	}
-	if (remaining_files==0) return 0;
+	if (remaining_files==0) return 0; //if no remainder
 	//else...
 	
 	if(pwd_dcb.header.next_block==0xFFFFFFFF){
-			printf("Invalid num_entries, folder is damaged!\n");
+			printf("Invalid num_entries, Directory is damaged!\n");
 			return -1;
 		}
 	//Read directory remainder
@@ -453,10 +512,10 @@ int SimpleFS_readDir(char* names, DirectoryHandle* d){
 	do{
 		//Again...
 		for(i=0;i<DIR_BLOCK_OFFSET;i++){
-			if(pwd_rem.file_blocks[i]!=0xFFFFFFFF){ //if index is valid
-			
-				remaining_files--;
-			
+			if(pwd_rem.file_blocks[i]!=0xFFFFFFFF){ //if there is a remainder
+				
+				if (remaining_files==0) break;
+					
 				//Reading ffb of every file to obtain name from fcb
 				res = DiskDriver_readBlock(d->sfs->disk, &temp_ffb, pwd_rem.file_blocks[i]);
 				if(res!=0) {
@@ -466,6 +525,8 @@ int SimpleFS_readDir(char* names, DirectoryHandle* d){
 			
 				strncpy(names+j,temp_ffb.fcb.name,128*sizeof(char)); //I'm assuming char names[pwd_dcb.num_entries][128]
 				j++;
+				
+				remaining_files--;
 			}
 			
 			if (remaining_files!=0){

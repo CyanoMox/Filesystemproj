@@ -72,15 +72,8 @@ char* DiskDriver_getBlock(DiskDriver* disk, unsigned int block_index);
 /** Implementation of the functions **/
 int DiskDriver_init(DiskDriver* disk, const char* filename, unsigned int num_blocks){
 	
-	int res = open(filename, O_CREAT | O_EXCL | O_RDWR, 0777);
-	if (res == -1){
-		res = open(filename, O_RDWR);
-		if(res == -1){
-				printf("Error opening file! \n");
-				return -1;
-		}
-		
-	}
+	int res = open(filename, O_CREAT | O_RDWR, 0777);
+	//I want an already made disk to be opened by DiskDriver_resume() function
 		
 	/**The code block I commented below did exactly the opposite of what is asked for:
 	 * instead of taking a file and truncating it of the right dimension, according to
@@ -191,7 +184,11 @@ int DiskDriver_writeBlock(DiskDriver* disk, void* src, unsigned int block_num){
 	if(cursor[block_num]==0) {
 		disk->free_blocks -= 1;
 		cursor[block_num] = 1;  //Updating Bitmap
-	}
+	}/*
+	else{
+		printf("Error! Block %d is already occupied!\n", block_num);
+		return -1;
+	}*/
 	
 	//Copying full block in dest memory
 	char* res = DiskDriver_getBlock(disk, block_num);
