@@ -4,7 +4,10 @@
 void printDirHandle(DirectoryHandle dir_handle);
 void printFileHandle(FileHandle file_handle);
 
+//Designed for testing file and dir remainders allocation
 void createFile_test(unsigned int num_files, DirectoryHandle dir_handle ,FileHandle file_handle);
+void readDir_test(int num_files, DirectoryHandle dir_handle);
+
 
 int main(int argc, char** argv) {
 	printf("FirstBlock size %ld\n", sizeof(FirstFileBlock));
@@ -15,6 +18,7 @@ int main(int argc, char** argv) {
 	printf("Number of file allocable in DCB: %d\n",F_DIR_BLOCK_OFFSET);
 	printf("Number of file allocable in remainder dir block: %d\n",DIR_BLOCK_OFFSET);
 
+	//return 0;
 	printf("\n\n+++ FS TESTING BEGINS +++\n\n");
 	
 	//And now... the true tests!
@@ -23,8 +27,8 @@ int main(int argc, char** argv) {
 	DiskDriver disk;
 	
 	fs.disk = &disk;
-	int block_number = 300;
-	int file_number = 280;
+	int block_number = 3000;
+	int file_number = 971;
 	
 	if (SimpleFS_format(&fs, "SFS_HDD.hex", block_number)!=0){
 		printf("Error formatting disk!\n");
@@ -55,8 +59,12 @@ int main(int argc, char** argv) {
 	}
 
 	printFileHandle(file_handle);*/
+	
+	readDir_test(file_number, root);
+	
 	return 0;
 }
+
 
 void printDirHandle(DirectoryHandle dir_handle){
 	printf("\n\nDirectory handle descriprion:\n");
@@ -77,14 +85,21 @@ void printFileHandle(FileHandle file_handle){
 }
 
 
-
 void createFile_test(unsigned int num_files, DirectoryHandle dir_handle ,FileHandle file_handle){
 	char filename[128];
-	int i, res;
+	int i, j='A', k='A', res;
 	while(num_files!=0){	
-		for(i=0;i<128;i++)
-			filename[i] = 'A' + num_files-1; //Initializing name vector
-			
+		
+		for(i=0;i<2;i+=2){
+			filename[i] = k;
+			filename[i+1] = j;
+			j++;		
+		}
+		if(j=='Z'+1){
+				k++;
+				j='A';
+			}
+		
 		//printf("DBG TEST\n");
 		if(res = SimpleFS_createFile(&dir_handle , filename, &file_handle)!=0){
 			printf("Error code: %d \n", res);
@@ -94,4 +109,24 @@ void createFile_test(unsigned int num_files, DirectoryHandle dir_handle ,FileHan
 		printFileHandle(file_handle);	
 		
 	}
+}
+
+
+void readDir_test(int num_files, DirectoryHandle dir_handle){
+	
+	//Checking for same filename
+	char names[num_files][128]; //Allocating name matrix
+	//we have num_entries sub-vectors by 128 bytes
+	
+	SimpleFS_readDir((char*)names, &dir_handle); //TODO: verify problem of char*[128]
+	
+	int i;
+	char printable[128];
+	
+	
+	for(i=0;i<num_files;i++){
+		strncpy(printable, names[i], 128*sizeof(char));
+		printf("%d) %s\n", i+1 ,printable);
+	}
+	
 }

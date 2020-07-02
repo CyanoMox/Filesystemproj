@@ -72,7 +72,7 @@ char* DiskDriver_getBlock(DiskDriver* disk, unsigned int block_index);
 /** Implementation of the functions **/
 int DiskDriver_init(DiskDriver* disk, const char* filename, unsigned int num_blocks){
 	
-	int res = open(filename, O_CREAT | O_RDWR, 0777);
+	int res = open(filename, O_CREAT | O_TRUNC| O_RDWR, 0777);
 	//I want an already made disk to be opened by DiskDriver_resume() function
 		
 	/**The code block I commented below did exactly the opposite of what is asked for:

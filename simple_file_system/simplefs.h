@@ -366,7 +366,6 @@ int SimpleFS_createFile(DirectoryHandle* d, const char* filename, FileHandle* de
 				return -3;
 			}
 			
-			pwd_dcb.header.next_block = remainder_index;
 			pwd_dcb.fcb.size_in_blocks++; //Will be updated with dcb later
 		}
 	}
@@ -462,8 +461,7 @@ int SimpleFS_createFile(DirectoryHandle* d, const char* filename, FileHandle* de
 	
 	return 0;
 }
-int SimpleFS_readDir(char* names, DirectoryHandle* d){
-	
+int SimpleFS_readDir(char* names, DirectoryHandle* d){	
 	
 	FirstDirectoryBlock pwd_dcb;
 	
@@ -480,6 +478,7 @@ int SimpleFS_readDir(char* names, DirectoryHandle* d){
 	for(i=0;i<F_DIR_BLOCK_OFFSET;i++){		
 		if (remaining_files==0) break;
 		
+		
 		//Reading ffb of every file to obtain name from fcb
 		res = DiskDriver_readBlock(d->sfs->disk, &temp_ffb, pwd_dcb.file_blocks[i]);
 		if(res!=0) {
@@ -487,10 +486,12 @@ int SimpleFS_readDir(char* names, DirectoryHandle* d){
 			return -1;
 		}
 		
-		strncpy(names+j,temp_ffb.fcb.name,128*sizeof(char)); //I'm assuming char names[pwd_dcb.num_entries][128]
+		strncpy(names+(j*128*sizeof(char)),temp_ffb.fcb.name,128*sizeof(char)); //I'm assuming char names[pwd_dcb.num_entries][128]
 		j++;
 		
 		remaining_files--;
+		printf("DBG name: %s\n", temp_ffb.fcb.name);
+		printf("Remaining items: %d\n", remaining_files);
 		
 	}
 	if (remaining_files==0) return 0; //if no remainder
@@ -500,52 +501,65 @@ int SimpleFS_readDir(char* names, DirectoryHandle* d){
 			printf("Invalid num_entries, Directory is damaged!\n");
 			return -1;
 		}
-	//Read directory remainder
+	//Read first directory remainder
 		DirectoryBlock pwd_rem;
 		
-		res = DiskDriver_readBlock(d->sfs->disk, &pwd_rem, pwd_dcb.header.next_block);
-		if(res!=0) {
+		if(DiskDriver_readBlock(d->sfs->disk, &pwd_rem, pwd_dcb.header.next_block)!=0) {
+			printf("Error reading first directory remainder block\n");
+			return -1;
+		}	
+	
+	printf("Next block: %d\n", pwd_rem.header.next_block);
+	while(pwd_rem.header.next_block!=0xFFFFFFFF){ //Scan every remainder	
+		
+		printf("REMAINDER\n");
+		for(i=0;i<DIR_BLOCK_OFFSET;i++){
+			if(pwd_rem.file_blocks[i]==0xFFFFFFFF){
+				printf("Invalid num_entries, Directory is damaged!\n");
+				return -1;
+			}
+			
+			if(DiskDriver_readBlock(d->sfs->disk, &temp_ffb, pwd_rem.file_blocks[i])!=0) {
+				printf("Error reading directory remainder block\n");
+				return -1;
+			}
+			
+			printf("DBG name: %s\n", temp_ffb.fcb.name);
+			strncpy(names+(j*128*sizeof(char)),temp_ffb.fcb.name,128*sizeof(char)); //I'm assuming char names[pwd_dcb.num_entries][128]
+			j++;
+			remaining_files--;
+						
+		}
+		
+		if(DiskDriver_readBlock(d->sfs->disk, &pwd_rem, pwd_rem.header.next_block)!=0) {
 			printf("Error reading directory remainder block\n");
 			return -1;
 		}
-	
-	do{
-		//Again...
-		for(i=0;i<DIR_BLOCK_OFFSET;i++){
-			if(pwd_rem.file_blocks[i]!=0xFFFFFFFF){ //if there is a remainder
-				
-				if (remaining_files==0) break;
-					
-				//Reading ffb of every file to obtain name from fcb
-				res = DiskDriver_readBlock(d->sfs->disk, &temp_ffb, pwd_rem.file_blocks[i]);
-				if(res!=0) {
-					printf("Error reading file block\n");
-					return -1;
-				}
-			
-				strncpy(names+j,temp_ffb.fcb.name,128*sizeof(char)); //I'm assuming char names[pwd_dcb.num_entries][128]
-				j++;
-				
-				remaining_files--;
-			}
-			
-			if (remaining_files!=0){
-				//Checks if we reached the final remainder block	
-				if(pwd_dcb.header.next_block==0xFFFFFFFF){
-					printf("Invalid num_entries, folder is damaged!\n");
-					return -1;
-				}
-			
-				//Read directory remainder	
-				res = DiskDriver_readBlock(d->sfs->disk, &pwd_rem, pwd_dcb.header.next_block);
-				if(res!=0) {
-					printf("Error reading directory remainder block\n");
-					return -1;
-				}
-			}
-		}
+		
 	}
-	while(remaining_files!=0);
+	
+	//Last remainder
+	i = 0; //TODO: this fixes a bug?
+	int block_index = pwd_rem.file_blocks[i];
+	while(block_index!=0xFFFFFFFF && remaining_files!=0){
+			
+		//Next fcb. No Check here: if 0xFFFFFFFF, simply while will exit
+		DiskDriver_readBlock(d->sfs->disk, &temp_ffb, pwd_rem.file_blocks[i]);
+		block_index = pwd_rem.file_blocks[i];
+		printf("Block index: %d\n", block_index);
+		
+		printf("DBG1 name: %s\n", temp_ffb.fcb.name);
+		strncpy(names+(j*128*sizeof(char)),temp_ffb.fcb.name,128*sizeof(char)); //I'm assuming char names[pwd_dcb.num_entries][128]
+		i++;
+		j++;
+		remaining_files--;
+		printf("Remaining items: %d\n", remaining_files);
+	}
+	
+	if(remaining_files!=0){
+		printf("Invalid num_entries, Directory is damaged!\n");
+		return -1;
+	}
 	
 	return 0;
 }
