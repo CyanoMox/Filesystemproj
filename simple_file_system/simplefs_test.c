@@ -7,7 +7,7 @@ void printFileHandle(FileHandle file_handle);
 //Designed for testing file and dir remainders allocation
 void createFile_test(unsigned int num_files, DirectoryHandle dir_handle ,FileHandle file_handle);
 void readDir_test(int num_files, DirectoryHandle dir_handle);
-
+void write_test(FileHandle file_handle, int num_bytes, char* symbol);
 
 int main(int argc, char** argv) {
 	printf("FirstBlock size %ld\n", sizeof(FirstFileBlock));
@@ -28,7 +28,7 @@ int main(int argc, char** argv) {
 	
 	fs.disk = &disk;
 	int block_number = 3000;
-	int file_number = 971;
+	int file_number = 400;
 	
 	if (SimpleFS_format(&fs, "SFS_HDD.hex", block_number)!=0){
 		printf("Error formatting disk!\n");
@@ -62,6 +62,14 @@ int main(int argc, char** argv) {
 	
 	readDir_test(file_number, root);
 	
+	//Open File test
+	SimpleFS_openFile(&root, "AA", &file_handle);
+	printFileHandle(file_handle);
+	
+	
+	//Write File test on opened file
+	write_test(file_handle, 18000, "!");
+	write_test(file_handle, 1001, "?");
 	return 0;
 }
 
@@ -129,4 +137,16 @@ void readDir_test(int num_files, DirectoryHandle dir_handle){
 		printf("%d) %s\n", i+1 ,printable);
 	}
 	
+}
+
+
+void write_test(FileHandle file_handle, int num_bytes, char* symbol){
+	int i, dim = F_FILE_BLOCK_OFFSET+num_bytes;
+	char src[dim];
+	for(i=0;i<dim;i++){
+		src[i] = *symbol; // ! == 33
+	}
+	
+	int res = SimpleFS_write(&file_handle, src, dim);
+	printf("Bytes written: %d\n", res);
 }

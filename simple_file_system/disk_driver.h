@@ -168,8 +168,14 @@ int DiskDriver_readBlock(DiskDriver* disk, void* dest, unsigned int block_num){
 	
 	if((int)cursor[block_num]==0) return -1; //Empty block
 
-	if((int)cursor[block_num]==1)  //Copying full block in dest memory
-		memcpy(dest, DiskDriver_getBlock(disk, block_num), BLOCK_SIZE);
+	if((int)cursor[block_num]==1){  //Copying full block in dest memory	
+		char* src = DiskDriver_getBlock(disk, block_num);
+		if(src==NULL){
+			printf("Can't read from invalid address\n");
+			return -1;
+		}
+		memcpy(dest, src, BLOCK_SIZE); //TODO: Serious bug here. Seek and destroy.
+	}
 	return 0;
 	
 }
@@ -309,14 +315,20 @@ int DiskDriver_resume(DiskDriver* disk, const char* filename){
 
 char* DiskDriver_getBlock(DiskDriver* disk, unsigned int block_index){
 	
-	if(block_index<0 || block_index > disk->num_entries-1) return (char*)NULL; //Security check
+	if(block_index<0 || block_index > disk->num_entries-1){ //Security check
+		printf("Invalid block index!\n");
+		return (char*)NULL; 
+	}
 	
 	int mapped_blocks = PAGE_SIZE/BLOCK_SIZE; //This has likely to be == 8
 	int offset;
 	
 	if(disk->first_mapped_block != 0xFFFFFFFF){
+		printf("DBG getBlock: %d\n", block_index);
 		if(block_index >= disk->first_mapped_block && block_index < (disk->first_mapped_block+mapped_blocks)){
 			offset = block_index - disk->first_mapped_block; //Calculating relative block index into mmapped block portion
+			printf("DBG offset = %d\n", offset);
+			printf("DBG first_mapped_block = %d\n", disk->first_mapped_block);
 			return &(disk->block_map[offset*BLOCK_SIZE]); //Moving to the first byte of that block and returning it
 		}
 	}
@@ -325,8 +337,8 @@ char* DiskDriver_getBlock(DiskDriver* disk, unsigned int block_index){
 	
 	disk->block_map = (char*)mmap(NULL, BLOCK_SIZE*PAGE_SIZE , PROT_READ|PROT_WRITE, MAP_SHARED, disk->fd, disk->first_block_offset+offset);
 	disk->first_mapped_block = (block_index/mapped_blocks)*mapped_blocks; //It works because the fraction takes only integer part.
-	//printf("offset = %d\n", offset);
-	//printf("first_mapped_block = %d\n", disk->first_mapped_block);
+	
+		
 	return DiskDriver_getBlock(disk, block_index);
 }
 

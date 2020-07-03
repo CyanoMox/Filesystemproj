@@ -18,7 +18,7 @@ void resume_test(DiskDriver disk, int block_number);
 int main (){
 	DiskDriver disk;
 	
-	int block_number = 31; //TODO: DiskDriver_resume is dipendent by this value. FIX THAT.
+	int block_number = 1000;
 	int res = DiskDriver_init(&disk, "test_fs.hex", block_number);
 	if (res==-1) {
 		printf("AHIME'! \n");
