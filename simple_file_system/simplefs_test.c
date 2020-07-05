@@ -27,7 +27,7 @@ int main(int argc, char** argv) {
 	DiskDriver disk;
 	
 	fs.disk = &disk;
-	int block_number = 3000;
+	int block_number = 1000;
 	int file_number = 400;
 	
 	if (SimpleFS_format(&fs, "SFS_HDD.hex", block_number)!=0){
@@ -70,6 +70,18 @@ int main(int argc, char** argv) {
 	//Write File test on opened file
 	write_test(file_handle, 18000, "!");
 	write_test(file_handle, 1001, "?");
+	
+	//Change Dir test
+	SimpleFS_changeDir(&root, ".."); //upwards on top dir
+	SimpleFS_changeDir(&root, "nodir"); //non-existent file
+	
+	//MkDir test
+	DirectoryHandle dir_handle = root; //New handle to "sacrifice"
+	SimpleFS_mkDir(&dir_handle, "dir");
+	SimpleFS_mkDir(&dir_handle, "EmbeddedDir"); //Embebbed dir.
+	
+	//Testing file creation under non-root dir
+	createFile_test(30, dir_handle, file_handle);
 	return 0;
 }
 
@@ -96,6 +108,11 @@ void printFileHandle(FileHandle file_handle){
 void createFile_test(unsigned int num_files, DirectoryHandle dir_handle ,FileHandle file_handle){
 	char filename[128];
 	int i, j='A', k='A', res;
+	
+	for(i=0;i<128;i++){
+		filename[i] = 0;
+	}
+	
 	while(num_files!=0){	
 		
 		for(i=0;i<2;i+=2){
@@ -103,7 +120,7 @@ void createFile_test(unsigned int num_files, DirectoryHandle dir_handle ,FileHan
 			filename[i+1] = j;
 			j++;		
 		}
-		if(j=='Z'+1){
+		if(j=='z'+1){
 				k++;
 				j='A';
 			}

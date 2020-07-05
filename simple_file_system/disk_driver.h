@@ -170,6 +170,7 @@ int DiskDriver_readBlock(DiskDriver* disk, void* dest, unsigned int block_num){
 
 	if((int)cursor[block_num]==1){  //Copying full block in dest memory	
 		char* src = DiskDriver_getBlock(disk, block_num);
+		//printf("DBG src pointer: %p\n", src);
 		if(src==NULL){
 			printf("Can't read from invalid address\n");
 			return -1;
@@ -315,6 +316,8 @@ int DiskDriver_resume(DiskDriver* disk, const char* filename){
 
 char* DiskDriver_getBlock(DiskDriver* disk, unsigned int block_index){
 	
+	//printf("DBG block to point: %d\n", block_index);
+	
 	if(block_index<0 || block_index > disk->num_entries-1){ //Security check
 		printf("Invalid block index!\n");
 		return (char*)NULL; 
@@ -324,21 +327,23 @@ char* DiskDriver_getBlock(DiskDriver* disk, unsigned int block_index){
 	int offset;
 	
 	if(disk->first_mapped_block != 0xFFFFFFFF){
-		printf("DBG getBlock: %d\n", block_index);
+		//printf("DBG getBlock: %d\n", block_index);
 		if(block_index >= disk->first_mapped_block && block_index < (disk->first_mapped_block+mapped_blocks)){
 			offset = block_index - disk->first_mapped_block; //Calculating relative block index into mmapped block portion
-			printf("DBG offset = %d\n", offset);
-			printf("DBG first_mapped_block = %d\n", disk->first_mapped_block);
+			//printf("DBG offset = %d\n", offset);
+			//printf("DBG first_mapped_block = %d\n", disk->first_mapped_block);
 			return &(disk->block_map[offset*BLOCK_SIZE]); //Moving to the first byte of that block and returning it
 		}
 	}
 	
 	offset = (block_index/mapped_blocks)*PAGE_SIZE; //it represents the portion of blocks that has to be mmapped to get the block "block_index"
 	
+	//TODO: BUG IS HERE!!! EXTERMINATE!!!
+	munmap(disk->block_map, BLOCK_SIZE*PAGE_SIZE);
 	disk->block_map = (char*)mmap(NULL, BLOCK_SIZE*PAGE_SIZE , PROT_READ|PROT_WRITE, MAP_SHARED, disk->fd, disk->first_block_offset+offset);
 	disk->first_mapped_block = (block_index/mapped_blocks)*mapped_blocks; //It works because the fraction takes only integer part.
 	
-		
+	//printf("DBG new block_map pointer: %p\n", disk->block_map);
 	return DiskDriver_getBlock(disk, block_index);
 }
 

@@ -573,15 +573,18 @@ int SimpleFS_openFile(DirectoryHandle* d, const char* filename, FileHandle* dest
 	}
 	char names[pwd_dcb.num_entries][128]; //Allocating name matrix
 	//we have num_entries sub-vectors by 128 bytes
-	if(SimpleFS_readDir(names[0], d)==-1) return -1;
 	
+	if(SimpleFS_readDir(names[0], d)==-1) return -1;
 	
 	//now retrieving FirstFileBlock index
 	int array_num = -1; //This value will record the position in the array of the filename itself. From that, it's easy to retrieve the fileindex
 	
 	int i;
+	FirstDirectoryBlock test_dir;
 	for(i=0;i<pwd_dcb.num_entries;i++){
-		if(strncmp(names[i],filename, 128*sizeof(char))==0) array_num = i;
+		if(strncmp(names[i],filename, 128*sizeof(char))==0){
+				array_num = i;
+		}
 	}
 	//if no filename match
 	if(array_num==-1){
@@ -798,7 +801,6 @@ int SimpleFS_write(FileHandle* f, void* src_data, int size){
 
 
 int SimpleFS_read(FileHandle* f, void* dst_data, int size){
-	//TODO: This implementation is cleaner and more elegant of the one above. Fix that.
 	
 	FileBlock ffb; //same as SimpleFS_write
 	FirstFileBlock* ffb_pointer = (FirstFileBlock*)&ffb;
@@ -871,7 +873,7 @@ int SimpleFS_changeDir(DirectoryHandle* d, char* dirname){
 		 * by openFile() and cast it into a DirectoryHandle*/
 		d = (DirectoryHandle*) &dest_handle;	
 		
-		//TODO: need to check for a file with same name.
+		//TODO: need to check for a file with same name. I think I will forbidden files and dirs with same name
 		
 		FirstDirectoryBlock dir;
 		if(DiskDriver_readBlock(d->sfs->disk, &dir, d->dcb)!=0){
@@ -913,7 +915,7 @@ int SimpleFS_changeDir(DirectoryHandle* d, char* dirname){
 	return 0;
 }
 
-
+/**
 int SimpleFS_mkDir(DirectoryHandle* d, char* dirname){
 	
 	//I check if the dir has one or more remainders
@@ -1087,7 +1089,54 @@ int SimpleFS_mkDir(DirectoryHandle* d, char* dirname){
 		}		
 	}
 }
+**/
 
+
+int SimpleFS_mkDir(DirectoryHandle* d, char* dirname){
+	//I'm taking advantage of createFile to allocate block and dir_rems
+	//Then, I will use the handle to set is_dir to 1. Magic.
+	
+	//Generating updir name for comparison
+	char updir[128];
+	strncpy(updir, "..", 128);
+	
+	FileHandle dest_handle;
+	FirstDirectoryBlock new_dir;
+	if(strncmp(dirname, updir, 128)!=0){
+		SimpleFS_createFile(d, dirname, &dest_handle);
+	}
+	else{
+	 printf("Cannot create .. dir!\n");	
+	 return -1;
+	}
+	
+	//Read the already-created file
+	if(DiskDriver_readBlock(d->sfs->disk, &new_dir, dest_handle.fcb)!=0){
+		printf("Error reading created file for transormation in dir\n");
+		return -1;
+	}
+	
+	//Turn it into a dir!
+	new_dir.fcb.is_dir = 1; //BOOM!
+	new_dir.num_entries = 0;
+	int i;
+	for(i=0;i<F_DIR_BLOCK_OFFSET;i++){
+		new_dir.file_blocks[i] = 0xFFFFFFFF;
+	}
+	
+	//Update dir status on disk
+	if(DiskDriver_writeBlock(d->sfs->disk, &new_dir, dest_handle.fcb)!=0){
+		printf("Error turning file into a dir\n");
+		return -1;
+	}
+	
+	//Updating DirectoryHandle
+	d->parent_dir = d->dcb;
+	d->dcb = dest_handle.fcb;
+	//TODO: eliminate other values of handles which I don't utilize.
+	
+	return 0;
+}
 
 int SimpleFS_remove(SimpleFS* fs, int index){
 	
