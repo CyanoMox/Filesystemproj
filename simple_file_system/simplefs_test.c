@@ -27,8 +27,8 @@ int main(int argc, char** argv) {
 	DiskDriver disk;
 	
 	fs.disk = &disk;
-	int block_number = 1000;
-	int file_number = 400;
+	int block_number = 300;
+	int file_number = 100;
 	
 	if (SimpleFS_format(&fs, "SFS_HDD.hex", block_number)!=0){
 		printf("Error formatting disk!\n");
@@ -68,8 +68,8 @@ int main(int argc, char** argv) {
 	
 	
 	//Write File test on opened file
-	write_test(file_handle, 18000, "!");
-	write_test(file_handle, 1001, "?");
+	write_test(file_handle, 180, "!");
+	write_test(file_handle, 10, "?");
 	
 	//Change Dir test
 	SimpleFS_changeDir(&root, ".."); //upwards on top dir
@@ -82,6 +82,10 @@ int main(int argc, char** argv) {
 	
 	//Testing file creation under non-root dir
 	createFile_test(30, dir_handle, file_handle);
+	
+	//Deleting a file
+	SimpleFS_openFile(&root, "AA", &file_handle);
+	SimpleFS_remove(&file_handle);
 	return 0;
 }
 
