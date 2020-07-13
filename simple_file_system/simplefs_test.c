@@ -6,7 +6,7 @@ void printFileHandle(FileHandle file_handle);
 
 //Designed for testing file and dir remainders allocation
 void createFile_test(unsigned int num_files, DirectoryHandle dir_handle ,FileHandle file_handle);
-void readDir_test(int num_files, DirectoryHandle dir_handle);
+void readDir_test(SimpleFS fs, DirectoryHandle dir_handle);
 void write_test(FileHandle file_handle, int num_bytes, char* symbol);
 
 int main(int argc, char** argv) {
@@ -18,7 +18,6 @@ int main(int argc, char** argv) {
 	printf("Number of file allocable in DCB: %d\n",F_DIR_BLOCK_OFFSET);
 	printf("Number of file allocable in remainder dir block: %d\n",DIR_BLOCK_OFFSET);
 
-	//return 0;
 	printf("\n\n+++ FS TESTING BEGINS +++\n\n");
 	
 	//And now... the true tests!
@@ -27,8 +26,8 @@ int main(int argc, char** argv) {
 	DiskDriver disk;
 	
 	fs.disk = &disk;
-	int block_number = 300;
-	int file_number = 100;
+	int block_number = 76456;
+	int file_number = 87;
 	
 	if (SimpleFS_format(&fs, "SFS_HDD.hex", block_number)!=0){
 		printf("Error formatting disk!\n");
@@ -47,20 +46,10 @@ int main(int argc, char** argv) {
 		filename[i] = '\0'; //Initializing name vector
 	}
 	
-	//printf("Insert filename [max 128 char]: ");
-	//scanf("%s", filename);
-	
 	FileHandle file_handle;
 	createFile_test(file_number, root, file_handle);
-	/*int res;
-	if(res = SimpleFS_createFile(&root, filename, &file_handle)!=0){
-		printf("Error code: %d \n", res);
-		exit(-1);
-	}
-
-	printFileHandle(file_handle);*/
 	
-	readDir_test(file_number, root);
+	readDir_test(fs, root);
 	
 	//Open File test
 	SimpleFS_openFile(&root, "AA", &file_handle);
@@ -78,14 +67,33 @@ int main(int argc, char** argv) {
 	//MkDir test
 	DirectoryHandle dir_handle = root; //New handle to "sacrifice"
 	SimpleFS_mkDir(&dir_handle, "dir");
+	SimpleFS_mkDir(&dir_handle, "dir");
 	SimpleFS_mkDir(&dir_handle, "EmbeddedDir"); //Embebbed dir.
 	
 	//Testing file creation under non-root dir
 	createFile_test(30, dir_handle, file_handle);
 	
+	readDir_test(fs, root);
 	//Deleting a file
+	printf("\nDeleting a file\n");
 	SimpleFS_openFile(&root, "AA", &file_handle);
 	SimpleFS_remove(&file_handle);
+	readDir_test(fs, root);
+	
+	//Deleting a dir that doesn't contain dirs
+	/**printf("\nDeleting a dir\n");	
+	SimpleFS_remove(&dir_handle);
+	readDir_test(fs, dir_handle);**/
+	
+	//Deleting a dir with subdirs
+	SimpleFS_changeDir(&dir_handle, "..");
+	readDir_test(fs, dir_handle);
+	SimpleFS_remove(&dir_handle);
+	readDir_test(fs, dir_handle);
+	
+	//Finally, check everything is ok
+	SimpleFS_checkFreeSpace(&fs);
+	
 	return 0;
 }
 
@@ -128,26 +136,33 @@ void createFile_test(unsigned int num_files, DirectoryHandle dir_handle ,FileHan
 				k++;
 				j='A';
 			}
-		
-		//printf("DBG TEST\n");
+
 		if(res = SimpleFS_createFile(&dir_handle , filename, &file_handle)!=0){
 			printf("Error code: %d \n", res);
 			exit(-1);
 		}
 		num_files--;
-		printFileHandle(file_handle);	
+		//printFileHandle(file_handle);	
 		
 	}
 }
 
 
-void readDir_test(int num_files, DirectoryHandle dir_handle){
+void readDir_test(SimpleFS fs, DirectoryHandle dir_handle){
+	FirstDirectoryBlock temp;
+	if(DiskDriver_readBlock(fs.disk, &temp, dir_handle.dcb)!=0){
+		printf("Error loading dir in memory\n");
+		exit(-1);
+	}
 	
+	printf("Current dir: %s\n", temp.fcb.name);
+	
+	int num_files = temp.num_entries;
 	//Checking for same filename
 	char names[num_files][128]; //Allocating name matrix
 	//we have num_entries sub-vectors by 128 bytes
 	
-	SimpleFS_readDir((char*)names, &dir_handle); //TODO: verify problem of char*[128]
+	SimpleFS_readDir((char*)names, &dir_handle); 
 	
 	int i;
 	char printable[128];

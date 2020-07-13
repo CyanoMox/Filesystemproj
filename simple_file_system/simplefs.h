@@ -77,8 +77,8 @@ typedef struct {
 
 typedef struct {
   DiskDriver* disk;
-  // add more fields if needed
   unsigned int current_directory_block;	  // index of the dir block currently accessed
+  char diskname[128];
 } SimpleFS;
 
 // this is a file handle, used to refer to open files
@@ -133,7 +133,6 @@ void SimpleFS_init(SimpleFS* fs, DirectoryHandle* dest_handle);
 // creates the inital structures, the top level directory
 // has name "/" and its control block is in the first position
 // it also clears the bitmap of occupied blocks on the disk
-// the current_directory_block is cached in the SimpleFS struct
 // and set to the top level directory
 int SimpleFS_format(SimpleFS* fs, const char* diskname, int num_blocks);
 
@@ -175,7 +174,7 @@ int SimpleFS_read(FileHandle* f, void* dst_data, int size);
 // it does side effect on the provided handle
 int SimpleFS_changeDir(DirectoryHandle* d, char* dirname);
 
-// creates a new directory in the current one (stored in fs->current_directory_block)
+// creates a new directory in the current one
 // 0 on success
 // -1 on error
 int SimpleFS_mkDir(DirectoryHandle* d, char* dirname);
@@ -184,6 +183,7 @@ int SimpleFS_mkDir(DirectoryHandle* d, char* dirname);
 // removes the file in the current directory
 // returns -1 on failure 0 on success
 // if a directory, it removes recursively all contained files
+// it side-effects and returns upper dir handle;
 int SimpleFS_remove(void* handle);
 
 /*** Auxiliary Funcions ***/
@@ -221,6 +221,7 @@ int SimpleFS_format(SimpleFS* fs, const char* diskname, int num_blocks){
 	}
 	
 	fs->current_directory_block = 0; //set on top dir
+	strncpy(fs->diskname, diskname, sizeof(char)*128);
 	
 	BlockHeader top_header;
 	FileControlBlock top_fcb;
@@ -493,8 +494,6 @@ int SimpleFS_readDir(char* names, DirectoryHandle* d){
 		j++;
 		
 		remaining_files--;
-		//printf("DBG name: %s\n", temp_ffb.fcb.name);
-		//printf("DBG Remaining items: %d\n", remaining_files);
 		
 	}
 	if (remaining_files==0) return 0; //if no remainder
@@ -512,22 +511,19 @@ int SimpleFS_readDir(char* names, DirectoryHandle* d){
 			return -1;
 		}	
 	
-	//printf("DBG Next block: %d\n", pwd_rem.header.next_block);
 	while(pwd_rem.header.next_block!=0xFFFFFFFF){ //Scan every remainder	
 		
-		//printf("DBG REMAINDER\n");
 		for(i=0;i<DIR_BLOCK_OFFSET;i++){
 			if(pwd_rem.file_blocks[i]==0xFFFFFFFF){
 				printf("Invalid num_entries, Directory is damaged!\n");
 				return -1;
 			}
-			//TODO: Serious bug here
+
 			if(DiskDriver_readBlock(d->sfs->disk, &temp_ffb, pwd_rem.file_blocks[i])!=0) {
 				printf("Error reading directory remainder block\n");
 				return -1;
 			}
 			
-			//printf("DBG name: %s\n", temp_ffb.fcb.name);
 			strncpy(names+(j*128*sizeof(char)),temp_ffb.fcb.name,128*sizeof(char)); //I'm assuming char names[pwd_dcb.num_entries][128]
 			j++;
 			remaining_files--;
@@ -542,21 +538,18 @@ int SimpleFS_readDir(char* names, DirectoryHandle* d){
 	}
 	
 	//Last remainder
-	i = 0; //TODO: this fixes a bug?
+	i = 0; 
 	int block_index = pwd_rem.file_blocks[i];
 	while(block_index!=0xFFFFFFFF && remaining_files!=0){
 			
 		//Next fcb. No Check here: if 0xFFFFFFFF, simply while will exit
 		DiskDriver_readBlock(d->sfs->disk, &temp_ffb, pwd_rem.file_blocks[i]);
 		block_index = pwd_rem.file_blocks[i];
-		//printf("DBG Block index: %d\n", block_index);
 		
-		//printf("DBG1 name: %s\n", temp_ffb.fcb.name);
 		strncpy(names+(j*128*sizeof(char)),temp_ffb.fcb.name,128*sizeof(char)); //I'm assuming char names[pwd_dcb.num_entries][128]
 		i++;
 		j++;
 		remaining_files--;
-		//printf("DBG Remaining items: %d\n", remaining_files);
 	}
 	
 	if(remaining_files!=0){
@@ -873,22 +866,24 @@ int SimpleFS_changeDir(DirectoryHandle* d, char* dirname){
 		if(SimpleFS_openFile(d, dirname, &dest_handle)!=0){
 			return -1;
 		}
-		/*This works because header and fcb of FirstFileBlock 
-		 * and FirstDirBlock have same offsets, so simply get FileHandle
-		 * by openFile() and cast it into a DirectoryHandle*/
-		d = (DirectoryHandle*) &dest_handle;	
-		
-		//TODO: need to check for a file with same name. I think I will forbidden files and dirs with same name
 		
 		FirstDirectoryBlock dir;
 		if(DiskDriver_readBlock(d->sfs->disk, &dir, d->dcb)!=0){
 			printf("Error reading dir/file\n");
 			return -1;
 		}
+		
 		if(dir.fcb.is_dir==0){
 			printf("This is not a dir\n");
 			return -1;
 		}
+		
+		/*This works because header and fcb of FirstFileBlock 
+		 * and FirstDirBlock have same offsets, so simply get FileHandle
+		 * by openFile() and cast it into a DirectoryHandle*/
+		
+		memcpy(d, &dest_handle, sizeof(DirectoryHandle));
+		
 		return 0;
 	}
 	//If name is ".."
@@ -898,7 +893,7 @@ int SimpleFS_changeDir(DirectoryHandle* d, char* dirname){
 	
 	//Checking if we are in top dir. If so, return top dir handle.
 	if(d->parent_dir == 0xFFFFFFFF){
-		printf("We already are top_dir!\n");
+		printf("We already are in root directory!\n");
 		return 0; //Do not modify handle.
 	}
 	
@@ -968,206 +963,6 @@ int SimpleFS_mkDir(DirectoryHandle* d, char* dirname){
 }
 
 
-/**
-int SimpleFS_remove(SimpleFS* fs, int index){
-	
-	FirstDirectoryBlock block; //I need to read block to know what type it has
-	int parent_dir_index = block.fcb.directory_block; //Needed for fixing file_blocks array on dirs.
-	
-	DirectoryBlock* rem_ptr = (DirectoryBlock*)&block; //For directory reminders
-	
-	if(DiskDriver_readBlock(fs->disk, &block, index)!=0){
-		printf("Error reading file/folder Block");
-		return -1;
-	}
-	if(block.fcb.is_dir == 1){ //If we got a dir
-		
-		while(block.file_blocks[0]!=0xFFFFFFFF){ //Emptying the dir before eliminating
-			if(SimpleFS_remove(fs, block.file_blocks[0])!=0){
-				printf("Error emptying dir\n");
-				return -1;
-			} 
-			//It works because I'm closing-up holes made by file/sub-dir elimination
-		}
-		//Now dir is empty
-		if(DiskDriver_freeBlock(fs->disk, index)!=0){
-			printf("Error eliminating empty dir!\n!");
-			return -1;	
-		}	
-	}
-	else{ //If we got a file
-		FileBlock* file_block = (FileBlock*)&block;
-		
-		//Iteratively fetch block chain and delete them		
-		int this_block = index;
-		int next_block = file_block->header.next_block;
-		
-		//Eliminating block and fetching next iteratively
-		while(file_block->header.next_block != 0xFFFFFFFF){
-			
-			if(DiskDriver_freeBlock(fs->disk, this_block)!=0){
-				printf("Error freeing Block");
-				return -1;
-			}
-			
-			if(DiskDriver_readBlock(fs->disk, file_block ,next_block)!=0){
-				printf("Error reading next file Block");
-				return -1;
-			
-			this_block = next_block;	
-			next_block = file_block->header.next_block;			
-			}
-		}
-		//Eliminating last remaining block
-		if(DiskDriver_freeBlock(fs->disk, this_block)!=0){
-				printf("Error freeing Block");
-				return -1;
-		}
-		
-		
-	}
-	//Filling the hole in file_blocks array in parent_dir.
-	
-	//Fetching parent dir
-	if(DiskDriver_readBlock(fs->disk, &block, parent_dir_index)!=0){
-		printf("Error reading file/folder Block");
-		return -1;
-	}
-	
-	//Scanning file_blocks array searching for "index" match
-	
-	//Trying in the FirstDirectoryBlock
-	int i, found = 0, first_dir_block = 1;
-	for(i=0;i<F_DIR_BLOCK_OFFSET;i++){
-		if(block.file_blocks[i] == index){
-			found = 1;
-			break;
-		}
-	}
-	if(found == 0){
-		//Then trying in remainder DirectoryBlocks
-		
-		first_dir_block = 0;
-		while(rem_ptr->header.next_block!=0xFFFFFFFF){
-			for(i=0;i<DIR_BLOCK_OFFSET;i++){
-				if(block.file_blocks[i] == index){
-					found = 1;
-					break;
-				}
-			}
-		}
-	}
-	if(found == 0){
-		printf("Something terrible happened!\n");
-		return -1;
-	}
-	//Now move every next array cell back of 1 position
-	
-	DirectoryBlock aux_dir; //For taking last array index from next remainder
-	
-	if(first_dir_block == 1){
-		for(;i<F_DIR_BLOCK_OFFSET-1;i++){
-			block.file_blocks[i] = block.file_blocks[i+1];
-		}
-		//Take, if any, the last index form the next remainder
-		if(block.header.next_block!=0xFFFFFFFF){
-			
-			if(DiskDriver_readBlock(fs->disk, &aux_dir, block.header.next_block)!=0){
-				printf("Error scaling back indexes from a remainder");
-				return -1;
-			}
-			block.file_blocks[F_DIR_BLOCK_OFFSET] = aux_dir.file_blocks[0];
-			//Update parent dir
-			if(DiskDriver_writeBlock(fs->disk, &aux_dir, parent_dir_index)!=0){
-				printf("Error scaling back indexes from a remainder");
-				return -1;
-			}
-		}
-		else{ //If no remainder, fill with invalid value
-			block.file_blocks[F_DIR_BLOCK_OFFSET] = 0xFFFFFFFF;
-			
-			//If a remainder block is now empty, delete!
-			found = 0;
-			for(i=0;i<DIR_BLOCK_OFFSET;i++){
-				if(block.file_blocks[i]!=0xFFFFFFFF){
-					found = 1;
-					break;
-				}
-			}
-			if(found == 0){ //Eliminate it!
-				if(DiskDriver_freeBlock(fs->disk, block.header.next_block)!=0){
-					printf("Error deleting dir remainder block\n");
-					return -1;
-				}
-			}
-			
-			//Update parent dir
-			if(DiskDriver_writeBlock(fs->disk, &aux_dir, parent_dir_index)!=0){
-				printf("Error scaling back indexes from a remainder");
-				return -1;
-			}
-			return 0; //No further operation to do here. Hooray!
-		}
-		
-		//Now operate on remainders
-		int this_block;
-		DirectoryBlock dir_rem;
-		
-		while(block.header.next_block!=0xFFFFFFFF){
-			this_block = block.header.next_block;
-			if(DiskDriver_readBlock(fs->disk, &dir_rem, this_block)!=0){
-				printf("Error scaling back indexes from a remainder");
-				return -1;
-			}
-			for(i=0;i<DIR_BLOCK_OFFSET-1;i++){
-				dir_rem.file_blocks[i] = dir_rem.file_blocks[i+1];
-			}
-			dir_rem.file_blocks[i] = 0xFFFFFFFF; //In case there is no further remainder
-			
-			//Take, if any, the last index form the next remainder
-			if(dir_rem.header.next_block!=0xFFFFFFFF){			
-				if(DiskDriver_readBlock(fs->disk, &aux_dir, dir_rem.header.next_block)!=0){
-					printf("Error scaling back indexes from a remainder");
-					return -1;
-				}
-				dir_rem.file_blocks[DIR_BLOCK_OFFSET] = aux_dir.file_blocks[0];
-			}	
-			//Update parent remainder
-			if(DiskDriver_writeBlock(fs->disk, &dir_rem, this_block)!=0){
-				printf("Error scaling back indexes from a remainder");
-				return -1;
-			}
-		}
-		//Last remainder
-		for(i=0;i<DIR_BLOCK_OFFSET-1;i++){
-			dir_rem.file_blocks[i] = dir_rem.file_blocks[i+1];
-		}
-		//Update parent remainder
-		if(DiskDriver_writeBlock(fs->disk, &dir_rem, this_block)!=0){
-			printf("Error scaling back indexes from a remainder");
-			return -1;
-		}
-		
-		//If a remainder block is now empty, delete!
-		found = 0;
-		for(i=0;i<DIR_BLOCK_OFFSET;i++){
-			if(block.file_blocks[i]!=0xFFFFFFFF){
-				found = 1;
-				break;
-			}
-		}
-		if(found == 0){ //Eliminate it!
-			if(DiskDriver_freeBlock(fs->disk, block.header.next_block)!=0){
-				printf("Error deleting dir remainder block\n");
-				return -1;
-			}
-		}
-	}
-	
-	//Congrats, you survived this nightmere!
-		return 0;
-}
-**/
 int SimpleFS_remove(void* handle){
 	FileHandle* file_handle = (FileHandle*)handle;
 	int index = ((FileHandle*)handle) -> fcb;
@@ -1217,7 +1012,6 @@ int SimpleFS_remove(void* handle){
 			break;
 		}
 	}
-	printf("DBG is_inside dcb = %d\n", is_inside);
 	
 	if(is_inside == 0){ //If pos is not in first dir block
 		//Find position in the array where the eliminated entry is
@@ -1319,7 +1113,6 @@ int SimpleFS_remove(void* handle){
 				}
 			
 				actual_index = temp_rem.header.next_block;
-				printf("DBG1\n");
 			}
 			
 			
@@ -1340,6 +1133,23 @@ int SimpleFS_remove(void* handle){
 					printf("Error deleting empty remainder!\n");
 					return -1;
 				}
+				upper_dir.fcb.size_in_blocks--;
+				actual_index = temp_rem.header.previous_block;
+				
+				if(actual_index!=0){
+					if(DiskDriver_readBlock(file_handle->sfs->disk, &temp_rem, actual_index)!=0){
+						printf("Error reading dir block to compact\n");
+						return -1;
+					}
+					temp_rem.header.next_block = 0xFFFFFFFF; //Detaching prev block
+					
+					if(DiskDriver_writeBlock(file_handle->sfs->disk, &temp_rem, actual_index)!=0){
+						printf("Error writing last dir block to compact\n");
+						return -1;
+					}
+				} //If prev block is dcb, special treatment below
+				
+				printf("Empty dir rem deleted\n");
 			}
 			else{
 				temp_rem.file_blocks[item_to_move] = 0xFFFFFFFF;
@@ -1353,10 +1163,21 @@ int SimpleFS_remove(void* handle){
 	
 	//Update upper_dir
 	upper_dir.num_entries--;
+	if(actual_index == 0){
+		upper_dir.header.next_block = 0xFFFFFFFF;
+		//If the next rem was removed, detach that block by dcb.
+		//It has no real effect if there was no rem.
+	}
+	
 	if(DiskDriver_writeBlock(file_handle->sfs->disk, &upper_dir, ((FileHandle*)handle) -> parent_dir)!=0){
 		printf("Error writing updates on dcb\n");
 		return -1;
 	}
+	
+	//side-effect on handle
+	SimpleFS_changeDir(handle, "..");
+	
+	return 0;
 }
 
 int remFile(SimpleFS* fs, int file_index){
@@ -1442,6 +1263,8 @@ int remDir(SimpleFS* fs, int dir_index){
 	for(i=0;i<F_DIR_BLOCK_OFFSET;i++){
 		//Read every item in array,
 		//if file, invoke remFile, if dir, recursion!
+		if(pwd.file_blocks[i] == 0xFFFFFFFF) break;
+		
 		if(DiskDriver_readBlock(fs->disk, &temp, pwd.file_blocks[i])!=0){
 			printf("Error reading dir dcb to delete\n");
 			return -1;
@@ -1475,6 +1298,6 @@ int SimpleFS_checkFreeSpace(SimpleFS* fs){
 		i = DiskDriver_getFreeBlock(fs->disk, i+1);
 		if(i!=-1) res++;
 	}
-	printf("Number of free blocks = %d", res);
+	printf("Number of free blocks = %d\nFrom disk it results = %d\n", res, fs->disk->free_blocks);
 	return res;
 }

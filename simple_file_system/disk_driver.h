@@ -216,7 +216,7 @@ int DiskDriver_freeBlock(DiskDriver* disk, unsigned int block_num){
 	cursor += sizeof(disk->num_entries);
 	
 	if(cursor[block_num]==1) {
-		disk->free_blocks += 1;
+		disk->free_blocks ++;
 		cursor[block_num] = 0; 
 	}
 		

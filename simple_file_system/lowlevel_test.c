@@ -18,7 +18,7 @@ void resume_test(DiskDriver disk, int block_number);
 int main (){
 	DiskDriver disk;
 	
-	int block_number = 1000;
+	int block_number = 76458;
 	int res = DiskDriver_init(&disk, "test_fs.hex", block_number);
 	if (res==-1) {
 		printf("AHIME'! \n");
@@ -78,7 +78,7 @@ void writeBlock_test(DiskDriver disk, int block_number){
 void freeBlock_test(DiskDriver disk, int block_number){
 	int i;
 	for(i=0;i<block_number;i+=2){
-		if(DiskDriver_freeBlock(&disk, i)==-1){
+		if(DiskDriver_freeBlock(&disk, i) != 0){
 			printf("OLLALLA'!\n");
 			exit(-1);
 		}
@@ -138,5 +138,8 @@ void resume_test(DiskDriver disk, int block_number){
 		printf("ACCIDERBOLINA!\n");
 		exit(-1);
 	}
+	
+	printf("Freeing one last block\n");
+	printDiskStatus(disk);
 	
 }
