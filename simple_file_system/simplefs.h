@@ -815,10 +815,10 @@ int SimpleFS_read(FileHandle* f, void* dst_data, int size){
 		read_bytes = size;
 		return read_bytes;
 	}
+	
 	else{
 		memcpy(dst_data, data_pointer, F_FILE_BLOCK_OFFSET);
 		read_bytes = F_FILE_BLOCK_OFFSET;
-		return read_bytes;
 	}
 	//If there are more blocks...
 	
@@ -827,13 +827,15 @@ int SimpleFS_read(FileHandle* f, void* dst_data, int size){
 		
 	while(1){
 		
+		printf("Read DBG\n");
+		
 		//If the previous was the last block
 		if(ffb.header.next_block==0xFFFFFFFF){
 			printf("File is shorter than size");
 			return read_bytes;
 		}
 		//Loading next block in memory
-		if(DiskDriver_readBlock(f->sfs->disk, &fb, ffb.header.next_block)){
+		if(DiskDriver_readBlock(f->sfs->disk, &fb, ffb.header.next_block) != 0){
 			printf("Error reading First Block\n");
 			return read_bytes;
 		}

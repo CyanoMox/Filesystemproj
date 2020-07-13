@@ -257,9 +257,8 @@ int disk_control(SimpleFS* fs, DirectoryHandle root, DirectoryHandle* pwd_handle
 		fseek(file, 0L, SEEK_SET);
 		fclose(file);
 		
-		printf("DBG write size: %d\n", write_size);
-		printf("TODO: DEBUG READ FUNCTION!!!\n");
-		
+		printf("Total write size: %d\n", write_size);
+
 		//Mmapping input file
 		int res = open("write_input.hex",  O_RDWR);
 		if(res == -1){
@@ -354,14 +353,14 @@ int disk_control(SimpleFS* fs, DirectoryHandle root, DirectoryHandle* pwd_handle
 		
 		if(strncmp(filename, "yes", sizeof(char)*3) != 0) return 0;
 		
-		printf("DBG diskname %s\n", fs->diskname);
+		printf("Diskname: %s\n", fs->diskname);
 		
 		if(SimpleFS_format(fs, fs->diskname, fs->disk->num_entries) != 0){
 			printf("A disaster happened!\n");
 			exit(-1);
 		}
 		
-		printf("<Shell> Disk formatted, restart the shell!\n");
+		printf("\n<Shell> Disk formatted, please restart the shell!\n");
 		
 		return 1;
 	}
