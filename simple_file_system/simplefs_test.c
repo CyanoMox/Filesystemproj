@@ -18,6 +18,10 @@ int main(int argc, char** argv) {
 	printf("Number of file allocable in DCB: %d\n",F_DIR_BLOCK_OFFSET);
 	printf("Number of file allocable in remainder dir block: %d\n",DIR_BLOCK_OFFSET);
 
+	//Uncomment this for info on screen!
+	//return 0;
+	
+	
 	printf("\n\n+++ FS TESTING BEGINS +++\n\n");
 	
 	//And now... the true tests!

@@ -119,7 +119,7 @@ int disk_control(SimpleFS* fs, DirectoryHandle root, DirectoryHandle* pwd_handle
 	int i;
 	for(i=0;i<128;i++) filename[i] = '\0'; 
 	
-	//printf("DBG current index: %ud\n", fs.current_directory_block);
+	//printf("DBG current index: %ud\n", fs->current_directory_block);
 	if(DiskDriver_readBlock(fs->disk, &pwd, fs->current_directory_block) !=0 ){
 		printf("<Shell> Error reading present working directory\n");
 		return -2;
@@ -161,6 +161,41 @@ int disk_control(SimpleFS* fs, DirectoryHandle root, DirectoryHandle* pwd_handle
 		 * When I have to use a file, I will use openFile and retrieve
 		 * its handle directly that way instead.
 		 * **/
+		//Special test function!
+		if (strcmp(filename, "fill_test")==0){
+			
+			unsigned int num_files = 300;
+			FileHandle test_file_handle;
+			
+			char test_filename[128];
+			int i, j='A', k='A', res;
+		
+			for(i=0;i<128;i++){
+				test_filename[i] = 0;
+			}
+		
+			while(num_files!=0){	
+				
+				for(i=0;i<2;i+=2){
+					test_filename[i] = k;
+					test_filename[i+1] = j;
+					j++;		
+				}
+				if(j=='z'+1){
+						k++;
+						j='A';
+					}
+
+				if(res = SimpleFS_createFile(pwd_handle , test_filename, &test_file_handle)!=0){
+					printf("Error code: %d \n", res);
+					exit(-1);
+				}
+				num_files--;
+				//printFileHandle(file_handle);	
+				
+			}
+			
+		}
 		
 		bad_choice = 0;
 	}
@@ -177,8 +212,7 @@ int disk_control(SimpleFS* fs, DirectoryHandle root, DirectoryHandle* pwd_handle
 		}
 		
 		printf("Current dir: %s\n", temp.fcb.name);
-		
-		int num_files = temp.num_entries;
+		int num_files = temp.num_entries;			
 		//Checking for same filename
 		char names[num_files][128]; //Allocating name matrix
 		//we have num_entries sub-vectors by 128 bytes
@@ -369,6 +403,12 @@ int disk_control(SimpleFS* fs, DirectoryHandle root, DirectoryHandle* pwd_handle
 		printf("\nInvalid choice!\n");
 		return -1;
 	}
+	
+	
+	//DBG
+	//printf("DBG file handle: %d %d %d\n", file_handle.fcb, file_handle.parent_dir, file_handle.sfs->current_directory_block);
+	printf("DBG pwd handle: %d %d %d\n", pwd_handle->dcb, pwd_handle->parent_dir, pwd_handle->sfs->current_directory_block);
+	
 	
 	return 0;
 }

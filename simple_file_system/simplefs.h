@@ -576,12 +576,12 @@ int SimpleFS_openFile(DirectoryHandle* d, const char* filename, FileHandle* dest
 	
 	//now retrieving FirstFileBlock index
 	int array_num = -1; //This value will record the position in the array of the filename itself. From that, it's easy to retrieve the fileindex
-	
 	int i;
 	FirstDirectoryBlock test_dir;
 	for(i=0;i<pwd_dcb.num_entries;i++){
 		if(strncmp(names[i],filename, 128*sizeof(char))==0){
-				array_num = i;
+			array_num = pwd_dcb.file_blocks[i];
+			break; //i has to have the value of	lenght of the array.
 		}
 	}
 	//if no filename match
@@ -598,23 +598,32 @@ int SimpleFS_openFile(DirectoryHandle* d, const char* filename, FileHandle* dest
 	}
 		
 	//if filename is in the first directory block
-	if(array_num<F_DIR_BLOCK_OFFSET){
+	if(i<F_DIR_BLOCK_OFFSET){
 		
 		dest_handle->sfs = d->sfs;
-		dest_handle->fcb = array_num+1; //It must count from 1 to consider root
+		dest_handle->fcb = array_num; 
 		dest_handle->parent_dir = pwd_dcb.fcb.block_in_disk;
 		dest_handle->current_block = 0;
 		dest_handle->pos_in_file = 0;
 		
+		//DBG 
+		//printf("<OPENF> DBG dest handle: %d %d %d\n", dest_handle->fcb, dest_handle->parent_dir, dest_handle->sfs->current_directory_block);
+		//printf("<OPENF:> DBG d handle: %d %d %d\n", d->dcb, d->parent_dir, d->sfs->current_directory_block);
+	
+		
 		return 0;
 		
 	}
-	//else picking un that reminder block
+	//else picking that reminder block
 	
-	array_num -= F_DIR_BLOCK_OFFSET; //excluding first dir block
-	int offset = array_num % DIR_BLOCK_OFFSET; //this is the offset to obtain the file in that block
-	int rem_dir_num = array_num/DIR_BLOCK_OFFSET; //this is the remainder block in the LL that contains the file
+	int array_len = i - F_DIR_BLOCK_OFFSET; //excluding first dir block
+	int offset = array_len % DIR_BLOCK_OFFSET; //this is the offset to obtain the file in that block
+	int rem_dir_num = array_len/DIR_BLOCK_OFFSET; //this is the remainder block in the LL that contains the file
 	
+	//DBG
+	printf("array_len: %d\n", array_len);
+	printf("offset: %d\n", offset);
+	printf("rem_dir_num: %d\n", rem_dir_num);
 		
 	//putting reminder block in stack 
 	DirectoryBlock pwd_rem;
@@ -623,7 +632,6 @@ int SimpleFS_openFile(DirectoryHandle* d, const char* filename, FileHandle* dest
 	if(DiskDriver_readBlock(d->sfs->disk, &pwd_rem, pwd_dcb.header.next_block)!=0)
 		return -1;
 		
-	//getting right DirBlock trough iterations
 	for(i=0;i<rem_dir_num;i++){
 		if(DiskDriver_readBlock(d->sfs->disk, &pwd_rem, pwd_rem.header.next_block)!=0)
 			return -1;
@@ -635,7 +643,12 @@ int SimpleFS_openFile(DirectoryHandle* d, const char* filename, FileHandle* dest
 	dest_handle->parent_dir = d->dcb;
 	dest_handle->current_block = 0;
 	dest_handle->pos_in_file = 0;
-		
+	
+	//DBG1
+	printf("<OPENF> DBG dest handle: %d %d %d\n", dest_handle->fcb, dest_handle->parent_dir, dest_handle->sfs->current_directory_block);
+	printf("<OPENF:> DBG d handle: %d %d %d\n", d->dcb, d->parent_dir, d->sfs->current_directory_block);
+	
+	
 	return 0;
 	
 }
@@ -827,8 +840,6 @@ int SimpleFS_read(FileHandle* f, void* dst_data, int size){
 		
 	while(1){
 		
-		printf("Read DBG\n");
-		
 		//If the previous was the last block
 		if(ffb.header.next_block==0xFFFFFFFF){
 			printf("File is shorter than size");
@@ -868,6 +879,7 @@ int SimpleFS_changeDir(DirectoryHandle* d, char* dirname){
 		if(SimpleFS_openFile(d, dirname, &dest_handle)!=0){
 			return -1;
 		}
+		
 		
 		FirstDirectoryBlock dir;
 		if(DiskDriver_readBlock(d->sfs->disk, &dir, d->dcb)!=0){
