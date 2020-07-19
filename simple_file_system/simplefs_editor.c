@@ -1,14 +1,21 @@
+#ifndef _MYHEADER
+#define _MYHEADER
 #include "disk_driver.h"
+#endif
+
 #include "simplefs.h"
 #include <stdlib.h>
 
 
-//This executable will implement high-level operations, like fs browsing and format and a shell.
+/*This executable will implement high-level operations, 
+ *like fs browsing and format and a shell.
+ */
 
 int newdisk(SimpleFS* fs);
 int resume(SimpleFS* fs);
 void printDiskStatus(DiskDriver* disk);
-int disk_control(SimpleFS* fs, DirectoryHandle root, DirectoryHandle* pwd_handle);
+int disk_control(SimpleFS* fs, DirectoryHandle root,
+									DirectoryHandle* pwd_handle);
 
 int main(){
 	int bad_choice = 1;
@@ -105,10 +112,12 @@ void printDiskStatus(DiskDriver* disk){
 	
 	printf("\nNumber of total Blocks = %d\n", disk->num_entries);
 	printf("Number of Free Blocks = %d\n", disk->free_blocks);
-	printf("First Block Offset (concerning bitmap) = %d\n", disk->first_block_offset);
+	printf("First Block Offset (concerning bitmap) = %d\n", 
+												disk->first_block_offset);
 }
 
-int disk_control(SimpleFS* fs, DirectoryHandle root, DirectoryHandle* pwd_handle){
+int disk_control(SimpleFS* fs, DirectoryHandle root, 
+										DirectoryHandle* pwd_handle){
 	int bad_choice = 1;
 	char choice = 0;
 	FirstDirectoryBlock pwd;	
@@ -119,8 +128,8 @@ int disk_control(SimpleFS* fs, DirectoryHandle root, DirectoryHandle* pwd_handle
 	int i;
 	for(i=0;i<128;i++) filename[i] = '\0'; 
 	
-	//printf("DBG current index: %ud\n", fs->current_directory_block);
-	if(DiskDriver_readBlock(fs->disk, &pwd, fs->current_directory_block) !=0 ){
+	if(DiskDriver_readBlock(fs->disk, &pwd, 
+									fs->current_directory_block) !=0 ){
 		printf("<Shell> Error reading present working directory\n");
 		return -2;
 	}
@@ -186,13 +195,12 @@ int disk_control(SimpleFS* fs, DirectoryHandle root, DirectoryHandle* pwd_handle
 						j='A';
 					}
 
-				if(res = SimpleFS_createFile(pwd_handle , test_filename, &test_file_handle)!=0){
+				if(res = SimpleFS_createFile(pwd_handle , test_filename, 
+												&test_file_handle) != 0){
 					printf("Error code: %d \n", res);
 					exit(-1);
 				}
-				num_files--;
-				//printFileHandle(file_handle);	
-				
+				num_files--;				
 			}
 			
 		}
@@ -206,7 +214,7 @@ int disk_control(SimpleFS* fs, DirectoryHandle root, DirectoryHandle* pwd_handle
 		 * in simplefs_test.c **/
 		
 		FirstDirectoryBlock temp;
-		if(DiskDriver_readBlock(fs->disk, &temp, pwd_handle->dcb)!=0){
+		if(DiskDriver_readBlock(fs->disk, &temp, pwd_handle->dcb) != 0){
 			printf("<Shell> Error loading dir in memory\n");
 			exit(-1);
 		}
@@ -214,6 +222,7 @@ int disk_control(SimpleFS* fs, DirectoryHandle root, DirectoryHandle* pwd_handle
 		printf("Current dir: %s\n", temp.fcb.name);
 		int num_files = temp.num_entries;			
 		//Checking for same filename
+		
 		char names[num_files][128]; //Allocating name matrix
 		//we have num_entries sub-vectors by 128 bytes
 		
@@ -257,7 +266,8 @@ int disk_control(SimpleFS* fs, DirectoryHandle root, DirectoryHandle* pwd_handle
 			read_size = temp.fcb.size_in_bytes;
 		
 		//Creating output file
-		int res = open("read_output.hex", O_CREAT | O_TRUNC| O_RDWR, 0777);
+		int res = open("read_output.hex", O_CREAT | O_TRUNC| 
+														O_RDWR, 0777);
 		if(ftruncate(res, read_size) != 0){
 			printf("<Shell> Error truncating output file\n");
 			return -1;
@@ -269,7 +279,7 @@ int disk_control(SimpleFS* fs, DirectoryHandle root, DirectoryHandle* pwd_handle
 	
 		munmap(dst, read_size);	
 		close(res);
-		printf("***Data was written in read_output.hex file***\n");
+		printf("***\nData was written in read_output.hex file***\n");
 		
 		bad_choice = 0;
 	}
@@ -296,7 +306,8 @@ int disk_control(SimpleFS* fs, DirectoryHandle root, DirectoryHandle* pwd_handle
 		//Mmapping input file
 		int res = open("write_input.hex",  O_RDWR);
 		if(res == -1){
-			printf("Error reading input file!\nFile named write_input.hex must exist.\n");
+			printf("Error reading input file!\nFile \
+named write_input.hex must exist.\n");
 			return -1;
 		}
 		char* src = (char*)mmap(NULL, write_size, PROT_READ|PROT_WRITE,
@@ -353,7 +364,8 @@ int disk_control(SimpleFS* fs, DirectoryHandle root, DirectoryHandle* pwd_handle
 		
 		FileHandle deletion_handle;
 		
-		if(SimpleFS_openFile(pwd_handle, filename, &deletion_handle) !=0 ){
+		if(SimpleFS_openFile(pwd_handle, filename, 
+									&deletion_handle) != 0 ){
 			printf("<Shell> Error finding file/dir to eliminate\n");
 			return -1;
 		}
@@ -381,7 +393,8 @@ int disk_control(SimpleFS* fs, DirectoryHandle root, DirectoryHandle* pwd_handle
 	if(strncmp(&choice, "x", sizeof(char)) == 0) {
 		//Format function
 		printf("Are you sure? Data will be lost!\n");
-		printf("Write *yes* to continue, otherwise operation will abort.\n");
+		printf("Write *yes* to continue, otherwise \
+operation will abort.\n");
 		scanf("%s", filename);
 		printf("\n");
 		
@@ -389,7 +402,8 @@ int disk_control(SimpleFS* fs, DirectoryHandle root, DirectoryHandle* pwd_handle
 		
 		printf("Diskname: %s\n", fs->diskname);
 		
-		if(SimpleFS_format(fs, fs->diskname, fs->disk->num_entries) != 0){
+		if(SimpleFS_format(fs, fs->diskname, 
+										fs->disk->num_entries) != 0){
 			printf("A disaster happened!\n");
 			exit(-1);
 		}
@@ -404,11 +418,6 @@ int disk_control(SimpleFS* fs, DirectoryHandle root, DirectoryHandle* pwd_handle
 		return -1;
 	}
 	
-	
-	//DBG
-	//printf("DBG file handle: %d %d %d\n", file_handle.fcb, file_handle.parent_dir, file_handle.sfs->current_directory_block);
-	printf("DBG pwd handle: %d %d %d\n", pwd_handle->dcb, pwd_handle->parent_dir, pwd_handle->sfs->current_directory_block);
-	
-	
 	return 0;
 }
+

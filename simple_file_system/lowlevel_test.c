@@ -56,7 +56,8 @@ void printDiskStatus(DiskDriver disk){
 	printf("First Block Mapped = %ud\n", disk.first_mapped_block);
 	printf("File Descriptor = %d\n", disk.fd);
 	printf("Number of Free Blocks = %d\n", disk.free_blocks);
-	printf("First Block Offset (concerning bitmap) = %d\n\n", disk.first_block_offset);
+	printf("First Block Offset \
+				(concerning bitmap) = %d\n\n", disk.first_block_offset);
 }
 
 
@@ -65,8 +66,8 @@ void writeBlock_test(DiskDriver disk, int block_number){
 	int i,j;
 	for(j=0;j<block_number;j++){
 		for(i=0;i<BLOCK_SIZE;i++) src[i] = 'A' + j;
-		if(DiskDriver_writeBlock(&disk, src, j)==-1){
-			printf("ACCIPICCHIA!\n");
+		if(DiskDriver_writeBlock(&disk, src, j) == -1){
+			printf("WriteBlock Error!!\n");
 			exit(-1);
 		}
 	}
@@ -79,7 +80,7 @@ void freeBlock_test(DiskDriver disk, int block_number){
 	int i;
 	for(i=0;i<block_number;i+=2){
 		if(DiskDriver_freeBlock(&disk, i) != 0){
-			printf("OLLALLA'!\n");
+			printf("FreeBlock Error!!\n");
 			exit(-1);
 		}
 	}
@@ -93,11 +94,11 @@ void readBlock_test(DiskDriver disk, int block_number){
 	char* dest = (char*)malloc(BLOCK_SIZE+1);
 	dest[BLOCK_SIZE] = '\0';
 	for(i=0;i<block_number;i++){
-		if(DiskDriver_readBlock(&disk, dest, i)==-2){
-			printf("OLLALLA'!\n");
+		if(DiskDriver_readBlock(&disk, dest, i) == -2){
+			printf("ReadBlock Error!!\n");
 			exit(-1);
 		}
-		if(DiskDriver_readBlock(&disk, dest, i)==-1)
+		if(DiskDriver_readBlock(&disk, dest, i) == -1)
 			printf("Empty Block\n");
 		else printf("Reading block:\n%s\n",dest);
 	}
@@ -117,16 +118,16 @@ void getFreeBlock_test(DiskDriver disk){
 void resume_test(DiskDriver disk, int block_number){
 	printf("\n\nTesting disk resumation\n\n");
 	
-	if(DiskDriver_resume(&disk, "test_fs.hex")==-1){
-		printf("PERDINCIBOLDO!");
+	if(DiskDriver_resume(&disk, "test_fs.hex") == -1){
+		printf("Resume Error!!");
 	}
 	
 	char* src = malloc(sizeof(char)*BLOCK_SIZE);
 	int i,j;
 	for(j=0;j<block_number;j++){
 		for(i=0;i<BLOCK_SIZE;i++) src[i] = 'B' + j;
-		if(DiskDriver_writeBlock(&disk, src, j)==-1){
-			printf("ACCIPICCHIA!\n");
+		if(DiskDriver_writeBlock(&disk, src, j) == -1){
+			printf("Allocation error in Resume test!\n");
 			exit(-1);
 		}
 	}
@@ -134,8 +135,8 @@ void resume_test(DiskDriver disk, int block_number){
 	printDiskStatus(disk);
 	
 	
-	if(DiskDriver_freeBlock(&disk, 1)==-1){ //Free block n. 1
-		printf("ACCIDERBOLINA!\n");
+	if(DiskDriver_freeBlock(&disk, 1) == -1){ //Free block n. 1
+		printf("FreeBlock Error!!\n");
 		exit(-1);
 	}
 	

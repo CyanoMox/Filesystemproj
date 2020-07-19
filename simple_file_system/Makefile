@@ -4,13 +4,14 @@ CC=gcc
 AR=ar
 
 
-BINS= simplefs_test
+BINS= simplefs_test\
+	lowlevel_test\
+	simplefs_editor
 
 OBJS = #add here your object files
 
-HEADERS=bitmap.h\
-	disk_driver.h\
-	simplefs.h
+HEADERS= disk_driver.h\
+	 simplefs.h
 
 %.o:	%.c $(HEADERS)
 	$(CC) $(CCOPTS) -c -o $@  $<

@@ -5,18 +5,21 @@ void printDirHandle(DirectoryHandle dir_handle);
 void printFileHandle(FileHandle file_handle);
 
 //Designed for testing file and dir remainders allocation
-void createFile_test(unsigned int num_files, DirectoryHandle dir_handle ,FileHandle file_handle);
+void createFile_test(unsigned int num_files, DirectoryHandle dir_handle ,
+												FileHandle file_handle);
 void readDir_test(SimpleFS fs, DirectoryHandle dir_handle);
 void write_test(FileHandle file_handle, int num_bytes, char* symbol);
 
 int main(int argc, char** argv) {
 	printf("FirstBlock size %ld\n", sizeof(FirstFileBlock));
 	printf("DataBlock size %ld\n", sizeof(FileBlock));
-	printf("FirstDirectoryBlock size %ld\n", sizeof(FirstDirectoryBlock));
+	printf("FirstDirectoryBlock size %ld\n", 
+										sizeof(FirstDirectoryBlock));
 	printf("DirectoryBlock size %ld\n", sizeof(DirectoryBlock));
 
 	printf("Number of file allocable in DCB: %d\n",F_DIR_BLOCK_OFFSET);
-	printf("Number of file allocable in remainder dir block: %d\n",DIR_BLOCK_OFFSET);
+	printf("Number of file allocable in remainder dir block: %d\n",
+													DIR_BLOCK_OFFSET);
 
 	//Uncomment this for info on screen!
 	//return 0;
@@ -106,9 +109,8 @@ void printDirHandle(DirectoryHandle dir_handle){
 	printf("\n\nDirectory handle descriprion:\n");
 	printf("Directory FCB index: %d\n", dir_handle.dcb);
 	printf("Parent directory FCB index: %d\n", dir_handle.parent_dir);
-	printf("Directory Current block index: %d\n", dir_handle.current_block);
-	printf("Current position in Directory index: %d\n", dir_handle.pos_in_dir);
-	printf("Current position in block: %d\n\n", dir_handle.pos_in_block);
+	printf("Directory Current block index: %d\n", 
+											dir_handle.current_block);
 }
 
 
@@ -116,12 +118,11 @@ void printFileHandle(FileHandle file_handle){
 	printf("\n\nFile handle descriprion:\n");
 	printf("File FCB index: %d\n", file_handle.fcb);
 	printf("Parent Directory FCB index: %d\n", file_handle.parent_dir);
-	printf("File Current block index: %d\n", file_handle.current_block);
-	printf("Current position in File: %d\n\n", file_handle.pos_in_file);
 }
 
 
-void createFile_test(unsigned int num_files, DirectoryHandle dir_handle ,FileHandle file_handle){
+void createFile_test(unsigned int num_files, 
+					DirectoryHandle dir_handle ,FileHandle file_handle){
 	char filename[128];
 	int i, j='A', k='A', res;
 	
@@ -141,7 +142,8 @@ void createFile_test(unsigned int num_files, DirectoryHandle dir_handle ,FileHan
 				j='A';
 			}
 
-		if(res = SimpleFS_createFile(&dir_handle , filename, &file_handle)!=0){
+		if(res = SimpleFS_createFile(&dir_handle , filename, 
+													&file_handle)!=0){
 			printf("Error code: %d \n", res);
 			exit(-1);
 		}
@@ -184,7 +186,7 @@ void write_test(FileHandle file_handle, int num_bytes, char* symbol){
 	int i, dim = F_FILE_BLOCK_OFFSET+num_bytes;
 	char src[dim];
 	for(i=0;i<dim;i++){
-		src[i] = *symbol; // ! == 33
+		src[i] = *symbol; // "!" == 33
 	}
 	
 	int res = SimpleFS_write(&file_handle, src, dim);
