@@ -158,18 +158,15 @@ int disk_control(SimpleFS* fs, DirectoryHandle root,
 	//Clear screen!
 	printf("\e[1;1H\e[2J"); 
 	
+	printDiskStatus(fs->disk);
+	printf("\n");
+	
 	if(strncmp(&choice, "1", sizeof(char)) == 0) {
 		//Create file function
 		printf("Insert filename: ");
 		scanf("%s", filename);
 		printf("\n");
 		
-		SimpleFS_createFile(pwd_handle, filename, &file_handle);
-		/**I will not directly use file_handle for this implementation.
-		 * It is mostly used by tests in simplefs_test.c
-		 * When I have to use a file, I will use openFile and retrieve
-		 * its handle directly that way instead.
-		 * **/
 		//Special test function!
 		if (strcmp(filename, "fill_test")==0){
 			
@@ -203,7 +200,15 @@ int disk_control(SimpleFS* fs, DirectoryHandle root,
 				num_files--;				
 			}
 			
+			printf("*** Special Test activated! ***");
 		}
+		//Normal beheaviour
+		else SimpleFS_createFile(pwd_handle, filename, &file_handle);
+		/**I will not directly use file_handle for this implementation.
+		 * It is mostly used by tests in simplefs_test.c
+		 * When I have to use a file, I will use openFile and retrieve
+		 * its handle directly that way instead.
+		 * **/
 		
 		bad_choice = 0;
 	}
@@ -279,7 +284,7 @@ int disk_control(SimpleFS* fs, DirectoryHandle root,
 	
 		munmap(dst, read_size);	
 		close(res);
-		printf("***\nData was written in read_output.hex file***\n");
+		printf("\n***Data was written in read_output.hex file***\n");
 		
 		bad_choice = 0;
 	}

@@ -1048,6 +1048,7 @@ int SimpleFS_remove(void* handle){
 			actual_index = rem_dir.header.next_block;
 		}	
 		
+		
 		if(is_inside == 0){
 			printf("Dir or handle is damaged!\n");
 			return -1;
@@ -1060,13 +1061,15 @@ int SimpleFS_remove(void* handle){
 			
 			//Moving to last remainder
 			last_rem_index = actual_index;
+				
 			if(DiskDriver_readBlock(file_handle->sfs->disk, 
 										&temp_rem, actual_index) != 0){
 				printf("Error reading dir block to compact\n");
 				return -1;
-			}
+			}	
 			
-			actual_index = rem_dir.header.next_block;
+			actual_index = temp_rem.header.next_block;
+	
 		}
 		
 		//Finding last element in array
@@ -1077,12 +1080,35 @@ int SimpleFS_remove(void* handle){
 			}
 		}
 		
+		/*
+		//DBG
+		FirstFileBlock dbg;
+		if(DiskDriver_readBlock(file_handle->sfs->disk, 
+											&dbg, temp_rem.file_blocks[item_to_move]) != 0){
+			printf("DBG error\n");
+			return -1;
+		}
+		printf("DBG last element name: %s\n", dbg.fcb.name);
+		printf("Is rem_dir == temp_rem: %d\n", rem_index == last_rem_index);
+		*/
+		
 		//Making and writing changes to blocks
-		rem_dir.file_blocks[i] = temp_rem.file_blocks[item_to_move];		
+		
+		if(rem_index == last_rem_index) //Hotfix
+			temp_rem.file_blocks[i] = temp_rem.file_blocks[item_to_move];		
+		else rem_dir.file_blocks[i] = temp_rem.file_blocks[item_to_move];
+		
+		temp_rem.file_blocks[item_to_move] = 0xFFFFFFFF;
 		
 		if(DiskDriver_writeBlock(file_handle->sfs->disk, 
 											&rem_dir, rem_index) != 0){
 			printf("Error writing dir block to compact\n");
+			return -1;
+		}
+		
+		if(DiskDriver_writeBlock(file_handle->sfs->disk, 
+									&temp_rem, last_rem_index) != 0){
+			printf("Error eliminating last item after moving it\n");
 			return -1;
 		}
 		
@@ -1240,8 +1266,6 @@ int remDir(SimpleFS* fs, int dir_index){
 	DirectoryBlock pwd_rem;
 	FirstFileBlock temp;
 	
-	printf("DBG dir index: %d\n", dir_index);
-	
 	if(DiskDriver_readBlock(fs->disk, &pwd, dir_index)!=0){
 		printf("Error reading dir dcb to delete\n");
 		return -1;
@@ -1254,40 +1278,35 @@ int remDir(SimpleFS* fs, int dir_index){
 	//Iterative destruction!
 	while(actual_index != 0xFFFFFFFF){
 		
-		printf("DBG dir rem index: %d\n", actual_index);
-		
 		//Loading next block in memory
 		if(DiskDriver_readBlock(fs->disk, &pwd_rem, actual_index) != 0){
 			printf("Error reading dir remainder block to delete\n");
 			return -1;
 		}
-		
+				
 		//Emptying that dir block
 		for(i=0;i<DIR_BLOCK_OFFSET;i++){
-			//Read every item in array,
-			
-			//printf("DBG1: %d\n", i);
-			
+			//Read every item in array,		
 			//Check if array is now empty
 			if (pwd_rem.file_blocks[i] == 0xFFFFFFFF) break;
 			
 			//If not empty, if file, invoke remFile, if dir, recursion!
 			if(DiskDriver_readBlock(fs->disk, &temp, 
 										pwd_rem.file_blocks[i]) != 0){
-											
-				//printf("DBG!\n");
+										
 				printf("Error reading dir dcb to delete\n");
 				return -1;
 			}
 			
 			if(temp.fcb.is_dir == 0){ //If file, invoke remFile
 				if(remFile(fs, pwd_rem.file_blocks[i]) != 0){
+					
 					return -1;
 				}
 			}
 			else{ //If dir, recursion				
-				printf("DBG Recursion!\n");
 				if(remDir(fs, pwd_rem.file_blocks[i]) != 0){
+					
 					return -1;
 				}
 			}
