@@ -132,6 +132,9 @@ int DiskDriver_init(DiskDriver* disk, const char* filename, unsigned int num_blo
 	disk->first_block_offset = bitmap_size;
 	disk->first_mapped_block = 0xFFFFFFFF;
 	
+	//Polishment
+	free(bitmap_padding);
+	
 	return 0;
 }
 
@@ -168,8 +171,10 @@ int DiskDriver_readBlock(DiskDriver* disk, void* dest,
 int DiskDriver_writeBlock(DiskDriver* disk, void* src, 
 												unsigned int block_num){
 	
+		
 	if(block_num<0 || block_num>disk->num_entries -1) 
 										return -1; //Invalid block num
+										
 	char* cursor = disk->disk_map;
 	cursor += sizeof(disk->num_entries);
 	
@@ -287,7 +292,7 @@ int DiskDriver_resume(DiskDriver* disk, const char* filename){
 		PROT_READ|PROT_WRITE, MAP_SHARED, disk->fd, 0); //mmapping bitmap area on fd
 	disk->disk_map = disk_map;
 	
-	disk->block_map = (char*)NULL;
+	disk->block_map = NULL;
 	disk->first_mapped_block = 0xFFFFFFFF; //Int doesn't support null value in C
 
 	disk->first_block_offset = bitmap_size;
@@ -331,11 +336,11 @@ char* DiskDriver_getBlock(DiskDriver* disk, unsigned int block_index){
 		}
 	}
 	
+	
 	//It represents the portion of blocks that has to be mmapped to get the block "block_index"
 	offset = (block_index/mapped_blocks)*PAGE_SIZE; 
-	
-	munmap(disk->block_map, BLOCK_SIZE*PAGE_SIZE); //Avoids mem leaks
-	
+	if(disk->block_map != NULL)
+		munmap(disk->block_map, BLOCK_SIZE*PAGE_SIZE); //Avoids mem leaks
 	disk->block_map = (char*)mmap(NULL, BLOCK_SIZE*PAGE_SIZE , 
 						PROT_READ|PROT_WRITE, MAP_SHARED, disk->fd, 
 										disk->first_block_offset+offset);
