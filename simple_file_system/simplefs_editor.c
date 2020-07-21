@@ -231,19 +231,29 @@ int disk_control(SimpleFS* fs, DirectoryHandle root,
 		char names[num_files][128]; //Allocating name matrix
 		//we have num_entries sub-vectors by 128 bytes
 		
-		SimpleFS_readDir((char*)names, pwd_handle); 
+		if(SimpleFS_readDir(*names, pwd_handle) != 0){
+			printf("Error reading dir\n");
+		} 
 		
 		int i;
 		char printable[128];
+		FileHandle dest_handle;
 		
 		
 		for(i=0;i<num_files;i++){
-			strncpy(printable, names[i], 128*sizeof(char));
-			printf("%d) %s\n", i+1 ,printable);
+			SimpleFS_openFile(pwd_handle, *names, &dest_handle);
+			DiskDriver_readBlock(fs->disk, &temp, dest_handle.fcb);
+			
+			//Print names
+			memcpy(printable, names[i], 128*sizeof(char));
+			printf("%d) %s", i+1 ,printable);
+			if(temp.fcb.is_dir == 1) printf(" <DIR>\n");
+			else printf("  <file>\n");
 		}
 	
 		bad_choice = 0;
 	}
+	
 	
 	if(strncmp(&choice, "3", sizeof(char)) == 0) {
 		//Read file function
