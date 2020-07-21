@@ -73,6 +73,8 @@ void writeBlock_test(DiskDriver disk, int block_number){
 	}
 	printf("\nAfter writeBlock test:\n");
 	printDiskStatus(disk);
+	
+	free(src);
 }
 
 
@@ -143,4 +145,5 @@ void resume_test(DiskDriver disk, int block_number){
 	printf("Freeing one last block\n");
 	printDiskStatus(disk);
 	
+	free(src);
 }
