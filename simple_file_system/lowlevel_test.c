@@ -1,7 +1,4 @@
-//#pragma once
-//#include "bitmap.h"
 #include "disk_driver.h"
-//#include "simplefs.h" 
 #include <stdio.h>
 
 
@@ -21,7 +18,7 @@ int main (){
 	int block_number = 76458;
 	int res = DiskDriver_init(&disk, "test_fs.hex", block_number);
 	if (res==-1) {
-		printf("AHIME'! \n");
+		printf("Error initializing disk!!! \n");
 		return -1;
 	}
 	else printDiskStatus(disk);

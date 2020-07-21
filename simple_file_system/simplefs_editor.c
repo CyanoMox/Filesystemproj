@@ -25,7 +25,17 @@ int main(){
 	fs.disk = &disk;
 	DirectoryHandle root;
 	
-	printf("+++ Welcome to SFS! +++\n");
+	printf("FirstBlock size %ld\n", sizeof(FirstFileBlock));
+	printf("DataBlock size %ld\n", sizeof(FileBlock));
+	printf("FirstDirectoryBlock size %ld\n", 
+										sizeof(FirstDirectoryBlock));
+	printf("DirectoryBlock size %ld\n", sizeof(DirectoryBlock));
+
+	printf("Number of file allocable in DCB: %d\n",F_DIR_BLOCK_OFFSET);
+	printf("Number of file allocable in remainder dir block: %d\n",
+													DIR_BLOCK_OFFSET);
+	
+	printf("\n\n+++ Welcome to SFS! +++\n");
 	printf("\nSelect an option:\n\n");
 	printf("1) Create new disk\n");
 	printf("2) Open disk\n\n");
@@ -170,7 +180,13 @@ int disk_control(SimpleFS* fs, DirectoryHandle root,
 		//Special test function!
 		if (strcmp(filename, "fill_test")==0){
 			
-			unsigned int num_files = 250;
+			int num_files;
+			
+			printf("<Shell> *** Special Test activated! ***\n");
+			printf("<Shell> Insert number of files to create!\n");
+			scanf("%d", &num_files);
+			printf("\n");
+			
 			FileHandle test_file_handle;
 			
 			char test_filename[128];
@@ -198,9 +214,7 @@ int disk_control(SimpleFS* fs, DirectoryHandle root,
 					exit(-1);
 				}
 				num_files--;				
-			}
-			
-			printf("<Shell> *** Special Test activated! ***");
+			}		
 		}
 		//Normal beheaviour
 		else SimpleFS_createFile(pwd_handle, filename, &file_handle);
@@ -263,7 +277,8 @@ int disk_control(SimpleFS* fs, DirectoryHandle root,
 		
 		FirstFileBlock temp;
 		
-		SimpleFS_openFile(pwd_handle, filename, &file_handle);
+		if(SimpleFS_openFile(pwd_handle, filename, &file_handle) != 0)
+			return -1;
 		
 		if(DiskDriver_readBlock(fs->disk, &temp, file_handle.fcb) != 0){
 			printf("<Shell> Error reading fcb\n");
@@ -307,7 +322,8 @@ int disk_control(SimpleFS* fs, DirectoryHandle root,
 		
 		FirstFileBlock temp;
 		
-		SimpleFS_openFile(pwd_handle, filename, &file_handle);
+		if(SimpleFS_openFile(pwd_handle, filename, &file_handle) != 0)
+			return -1;
 
 		//Getting input length
 		FILE* file = fopen("write_input.hex", "r");
