@@ -46,7 +46,7 @@ int main(){
 	}
 	
 	if(bad_choice != 0){
-		printf("Invalid choice!\n");
+		printf("<Shell> Invalid choice!\n");
 		return -1;
 	}
 	
@@ -71,11 +71,11 @@ int main(){
 int newdisk(SimpleFS* fs){
 	char diskname[128];
 	int size;
-	printf("Choose a name for the disk: ");
+	printf("<Shell> Choose a name for the disk: ");
 	scanf("%s", diskname);
 	printf("\n");
 	
-	printf("Choose a size for the disk: ");
+	printf("<Shell> Choose a size for the disk: ");
 	scanf("%d", &size);
 	printf("\n");
 	
@@ -91,7 +91,7 @@ int newdisk(SimpleFS* fs){
 
 int resume(SimpleFS* fs){
 	char diskname[128];
-	printf("Insert disk name: ");
+	printf("<Shell> Insert disk name: ");
 	scanf("%s", diskname);
 	printf("\n");
 	
@@ -134,7 +134,7 @@ int disk_control(SimpleFS* fs, DirectoryHandle root,
 		return -2;
 	}
 	
-	printf("\n\nDisk is ready, select an option:\n\n");
+	printf("\n\n<Shell> Disk is ready, select an option:\n\n");
 	printf("Present working directory: %s\n", pwd.fcb.name);
 	printf("1) Create File\n");
 	printf("2) Read Dir\n");
@@ -163,14 +163,14 @@ int disk_control(SimpleFS* fs, DirectoryHandle root,
 	
 	if(strncmp(&choice, "1", sizeof(char)) == 0) {
 		//Create file function
-		printf("Insert filename: ");
+		printf("<Shell> Insert filename: ");
 		scanf("%s", filename);
 		printf("\n");
 		
 		//Special test function!
 		if (strcmp(filename, "fill_test")==0){
 			
-			unsigned int num_files = 300;
+			unsigned int num_files = 250;
 			FileHandle test_file_handle;
 			
 			char test_filename[128];
@@ -200,7 +200,7 @@ int disk_control(SimpleFS* fs, DirectoryHandle root,
 				num_files--;				
 			}
 			
-			printf("*** Special Test activated! ***");
+			printf("<Shell> *** Special Test activated! ***");
 		}
 		//Normal beheaviour
 		else SimpleFS_createFile(pwd_handle, filename, &file_handle);
@@ -232,7 +232,7 @@ int disk_control(SimpleFS* fs, DirectoryHandle root,
 		//we have num_entries sub-vectors by 128 bytes
 		
 		if(SimpleFS_readDir(*names, pwd_handle) != 0){
-			printf("Error reading dir\n");
+			printf("<Shell> Error reading dir\n");
 		} 
 		
 		int i;
@@ -257,7 +257,7 @@ int disk_control(SimpleFS* fs, DirectoryHandle root,
 	
 	if(strncmp(&choice, "3", sizeof(char)) == 0) {
 		//Read file function
-		printf("Insert filename: ");
+		printf("<Shell> Insert filename: ");
 		scanf("%s", filename);
 		printf("\n");
 		
@@ -272,7 +272,7 @@ int disk_control(SimpleFS* fs, DirectoryHandle root,
 		
 		int read_size;
 		
-		printf("Insert read size (-1 for *all*): ");
+		printf("<Shell> Insert read size (-1 for *all*): ");
 		scanf("%d", &read_size);
 		printf("\n");
 		
@@ -294,14 +294,14 @@ int disk_control(SimpleFS* fs, DirectoryHandle root,
 	
 		munmap(dst, read_size);	
 		close(res);
-		printf("\n***Data was written in read_output.hex file***\n");
+		printf("\n<Shell> ***Data was written in read_output.hex file***\n");
 		
 		bad_choice = 0;
 	}
 	
 	if(strncmp(&choice, "4", sizeof(char)) == 0) {
 		//Write file function
-		printf("Insert filename: ");
+		printf("<Shell> Insert filename: ");
 		scanf("%s", filename);
 		printf("\n");
 		
@@ -316,12 +316,12 @@ int disk_control(SimpleFS* fs, DirectoryHandle root,
 		fseek(file, 0L, SEEK_SET);
 		fclose(file);
 		
-		printf("Total write size: %d\n", write_size);
+		printf("<Shell> Total write size: %d\n", write_size);
 
 		//Mmapping input file
 		int res = open("write_input.hex",  O_RDWR);
 		if(res == -1){
-			printf("Error reading input file!\nFile \
+			printf("<Shell> Error reading input file!\nFile \
 named write_input.hex must exist.\n");
 			return -1;
 		}
@@ -331,14 +331,14 @@ named write_input.hex must exist.\n");
 		SimpleFS_write(&file_handle, src, write_size);
 		munmap(src, write_size);
 		close(res);
-		printf("write_input.hex read succesfully\n");
+		printf("<Shell> write_input.hex read succesfully\n");
 		
 		bad_choice = 0;
 	}
 	
 	if(strncmp(&choice, "5", sizeof(char)) == 0) {
 		//MkDir function
-		printf("Insert dirname: ");
+		printf("<Shell> Insert dirname: ");
 		scanf("%s", filename);
 		printf("\n");
 		
@@ -347,7 +347,7 @@ named write_input.hex must exist.\n");
 			return -1;
 		}
 		
-		printf("The directory was created succesfully.");
+		printf("<Shell> The directory was created succesfully.");
 		
 		fs->current_directory_block = pwd_handle->dcb;
 		
@@ -356,7 +356,7 @@ named write_input.hex must exist.\n");
 	
 	if(strncmp(&choice, "6", sizeof(char)) == 0) {
 		//Cd function
-		printf("Insert dirname: ");
+		printf("<Shell> Insert dirname: ");
 		scanf("%s", filename);
 		printf("\n");
 		
@@ -373,7 +373,7 @@ named write_input.hex must exist.\n");
 	if(strncmp(&choice, "7", sizeof(char)) == 0) {
 		//Remove function
 		
-		printf("Insert file or dir name: ");
+		printf("<Shell> Insert file or dir name: ");
 		scanf("%s", filename);
 		printf("\n");
 		
@@ -407,7 +407,7 @@ named write_input.hex must exist.\n");
 	
 	if(strncmp(&choice, "x", sizeof(char)) == 0) {
 		//Format function
-		printf("Are you sure? Data will be lost!\n");
+		printf("<Shell> Are you sure? Data will be lost!\n");
 		printf("Write *yes* to continue, otherwise \
 operation will abort.\n");
 		scanf("%s", filename);
@@ -415,11 +415,13 @@ operation will abort.\n");
 		
 		if(strncmp(filename, "yes", sizeof(char)*3) != 0) return 0;
 		
-		printf("Diskname: %s\n", fs->diskname);
+		printf("<Shell> Diskname: %s\n", fs->diskname);
 		
-		if(SimpleFS_format(fs, fs->diskname, 
+		char disk_name[128];
+		strncpy(disk_name, fs->diskname, 128*sizeof(char));
+		if(SimpleFS_format(fs, disk_name, 
 										fs->disk->num_entries) != 0){
-			printf("A disaster happened!\n");
+			printf("<Shell> A disaster happened!\n");
 			exit(-1);
 		}
 		
@@ -429,7 +431,7 @@ operation will abort.\n");
 	}
 	
 	if(bad_choice != 0){
-		printf("\nInvalid choice!\n");
+		printf("\n<Shell> Invalid choice!\n");
 		return -1;
 	}
 	
