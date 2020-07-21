@@ -79,24 +79,28 @@ int main(int argc, char** argv) {
 	
 	//Testing file creation under non-root dir
 	createFile_test(30, dir_handle, file_handle);
-	
-	readDir_test(fs, root);
-	//Deleting a file
-	printf("\nDeleting a file\n");
-	SimpleFS_openFile(&root, "AA", &file_handle);
-	SimpleFS_remove(&file_handle);
 	readDir_test(fs, root);
 	
 	//Deleting a dir that doesn't contain dirs
-	/**printf("\nDeleting a dir\n");	
+	printf("\nDeleting a dir\n");	
 	SimpleFS_remove(&dir_handle);
-	readDir_test(fs, dir_handle);**/
+	readDir_test(fs, dir_handle);
 	
 	//Deleting a dir with subdirs
 	SimpleFS_changeDir(&dir_handle, "..");
 	readDir_test(fs, dir_handle);
 	SimpleFS_remove(&dir_handle);
+	SimpleFS_changeDir(&dir_handle, "..");
+	SimpleFS_remove(&dir_handle);
 	readDir_test(fs, dir_handle);
+	
+		
+	//Deleting a file
+	printf("\nDeleting a file\n");
+	SimpleFS_openFile(&root, "BY", &file_handle);
+	SimpleFS_remove(&file_handle);
+	readDir_test(fs, root);
+	readDir_test(fs, root);
 	
 	//Finally, check everything is ok
 	SimpleFS_checkFreeSpace(&fs);
@@ -155,30 +159,39 @@ void createFile_test(unsigned int num_files,
 
 
 void readDir_test(SimpleFS fs, DirectoryHandle dir_handle){
+
 	FirstDirectoryBlock temp;
-	if(DiskDriver_readBlock(fs.disk, &temp, dir_handle.dcb)!=0){
-		printf("Error loading dir in memory\n");
-		exit(-1);
-	}
-	
-	printf("Current dir: %s\n", temp.fcb.name);
-	
-	int num_files = temp.num_entries;
-	//Checking for same filename
-	char names[num_files][128]; //Allocating name matrix
-	//we have num_entries sub-vectors by 128 bytes
-	
-	SimpleFS_readDir((char*)names, &dir_handle); 
-	
-	int i;
-	char printable[128];
-	
-	
-	for(i=0;i<num_files;i++){
-		strncpy(printable, names[i], 128*sizeof(char));
-		printf("%d) %s\n", i+1 ,printable);
-	}
-	
+		if(DiskDriver_readBlock(fs.disk, &temp, dir_handle.dcb) != 0){
+			printf("Error loading dir in memory\n");
+			exit(-1);
+		}
+		
+		printf("Current dir: %s\n", temp.fcb.name);
+		int num_files = temp.num_entries;			
+		//Checking for same filename
+		
+		char names[num_files][128]; //Allocating name matrix
+		//we have num_entries sub-vectors by 128 bytes
+		
+		if(SimpleFS_readDir(*names, &dir_handle) != 0){
+			printf("Error reading dir\n");
+		} 
+		
+		int i;
+		char printable[128];
+		FileHandle dest_handle;
+		
+		
+		for(i=0;i<num_files;i++){
+			SimpleFS_openFile(&dir_handle, *names, &dest_handle);
+			DiskDriver_readBlock(fs.disk, &temp, dest_handle.fcb);
+			
+			//Print names
+			memcpy(printable, names[i], 128*sizeof(char));
+			printf("%d) %s", i+1 ,printable);
+			if(temp.fcb.is_dir == 1) printf(" <DIR>\n");
+			else printf("  <file>\n");
+		}		
 }
 
 
