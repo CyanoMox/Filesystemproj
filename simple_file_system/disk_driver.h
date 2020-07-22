@@ -323,7 +323,6 @@ char* DiskDriver_getBlock(DiskDriver* disk, unsigned int block_index){
 	int offset;
 	
 	if(disk->first_mapped_block != 0xFFFFFFFF){
-		//printf("DBG getBlock: %d\n", block_index);
 		if(block_index >= disk->first_mapped_block 
 			  && block_index < (disk->first_mapped_block+mapped_blocks)){
 			//Calculating relative block index into mmapped block portion
