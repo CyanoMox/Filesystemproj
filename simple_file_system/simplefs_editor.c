@@ -255,7 +255,7 @@ int disk_control(SimpleFS* fs, DirectoryHandle root,
 		
 		
 		for(i=0;i<num_files;i++){
-			SimpleFS_openFile(pwd_handle, *names, &dest_handle);
+			SimpleFS_openFile(pwd_handle, names[i], &dest_handle);
 			DiskDriver_readBlock(fs->disk, &temp, dest_handle.fcb);
 			
 			//Print names
@@ -274,6 +274,18 @@ int disk_control(SimpleFS* fs, DirectoryHandle root,
 		printf("<Shell> Insert filename: ");
 		scanf("%s", filename);
 		printf("\n");
+		
+		//File or folder check
+		FirstFileBlock temp_check;
+		FileHandle dest_handle;
+		
+		SimpleFS_openFile(pwd_handle, filename, &dest_handle);
+		DiskDriver_readBlock(fs->disk, &temp_check, dest_handle.fcb);
+			
+		if(temp_check.fcb.is_dir == 1) {
+			printf("<Shell> Not a file\n");
+			return -1;
+		}
 		
 		FirstFileBlock temp;
 		
@@ -320,6 +332,19 @@ int disk_control(SimpleFS* fs, DirectoryHandle root,
 		scanf("%s", filename);
 		printf("\n");
 		
+		//File or folder check
+		FirstFileBlock temp_check;
+		FileHandle dest_handle;
+		
+		SimpleFS_openFile(pwd_handle, filename, &dest_handle);
+		DiskDriver_readBlock(fs->disk, &temp_check, dest_handle.fcb);
+			
+		if(temp_check.fcb.is_dir == 1) {
+			printf("<Shell> Not a file\n");
+			return -1;
+		}
+		
+		//Opening file
 		FirstFileBlock temp;
 		
 		if(SimpleFS_openFile(pwd_handle, filename, &file_handle) != 0)
@@ -376,6 +401,21 @@ named write_input.hex must exist.\n");
 		scanf("%s", filename);
 		printf("\n");
 		
+		if(strncmp(filename, "..", sizeof(char)*128)!=0){
+			//File or folder check
+			FirstFileBlock temp;
+			FileHandle dest_handle;
+		
+			SimpleFS_openFile(pwd_handle, filename, &dest_handle);
+			DiskDriver_readBlock(fs->disk, &temp, dest_handle.fcb);
+				
+			if(temp.fcb.is_dir == 0) {
+				printf("<Shell> Not a dir\n");
+				return -1;
+			}
+		}
+			
+		//Dir change
 		if(SimpleFS_changeDir(pwd_handle, filename) != 0){
 			printf("<Shell> Error opening directory\n");
 			return -1;
